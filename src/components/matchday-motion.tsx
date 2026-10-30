@@ -74,8 +74,14 @@ export function MatchdayIntro() {
 export function BallLoading({ label = "Đang cập nhật tỷ số" }: { label?: string }) {
   return (
     <div className="ball-loading" role="status">
-      <Football className="loading-football" />
-      <span>{label}</span>
+      <div className="loading-stadium" aria-hidden="true">
+        <span className="loading-floodlight loading-floodlight-left" />
+        <span className="loading-floodlight loading-floodlight-right" />
+        <span className="loading-crowd loading-crowd-back" />
+        <span className="loading-crowd loading-crowd-front" />
+        <Football className="loading-football" />
+      </div>
+      <span className="loading-caption">{label}<span className="loading-dots" aria-hidden="true">...</span></span>
     </div>
   );
 }
@@ -130,9 +136,11 @@ export function MatchdayMascot({ event }: { event: GoalEvent | null }) {
         onPointerLeave={(pointer) => {
           pointer.currentTarget.style.removeProperty("--gaze-x");
         }}>
-        <span className="mascot-scarf" aria-hidden="true" />
-        <span className="mascot-body" aria-hidden="true"><Football className="mascot-football" /><span className="mascot-eye left" /><span className="mascot-eye right" /><span className="mascot-smile" /></span>
-        <span className="mascot-foot left" aria-hidden="true" /><span className="mascot-foot right" aria-hidden="true" />
+        <span className="mascot-art" aria-hidden="true">
+          <span className="mascot-scarf" />
+          <span className="mascot-body"><Football className="mascot-football" /><span className="mascot-eye left" /><span className="mascot-eye right" /><span className="mascot-smile" /></span>
+          <span className="mascot-foot left" /><span className="mascot-foot right" />
+        </span>
       </button>
       <span className="mascot-muted"><VolumeX size={11} /> Không âm thanh</span>
     </div>

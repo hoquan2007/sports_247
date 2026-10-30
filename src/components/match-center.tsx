@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { BallLoading, MatchdayIntro, MatchdayMascot } from "@/components/matchday-motion";
 import { detectGoalEvent, type GoalEvent } from "@/lib/football/goal-event";
+import { reconcileFeed } from "@/lib/football/feed-state";
 import { LEAGUES, shiftDate, vietnamDate, VIETNAM_TIMEZONE } from "@/lib/football/leagues";
 import type { FootballMatch, FootballTeam, MatchFeed, MatchStatus } from "@/lib/football/types";
 
@@ -225,6 +226,9 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
   const [clockNow, setClockNow] = useState<Date | null>(null);
   const [goalEvent, setGoalEvent] = useState<GoalEvent | null>(null);
   const previousSnapshot = useRef({ date: initialFeed.date, matches: initialFeed.matches, complete: !initialFeed.partial });
+  const latestFeedRef = useRef<MatchFeed>(initialFeed);
+  const activeDateRef = useRef(initialFeed.date);
+  const latestRequestRef = useRef(0);
 
   useEffect(() => {
     if (!goalEvent) return;
@@ -256,23 +260,27 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
   }, []);
 
   const retrieve = useCallback(async (date: string, signal: AbortSignal, silent: boolean) => {
+    const requestId = ++latestRequestRef.current;
     if (!silent) setLoading(true);
     try {
       const response = await fetch(`/api/matches?date=${encodeURIComponent(date)}`, { signal, cache: "no-store" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json() as MatchFeed;
-      if (!signal.aborted) {
+      if (!signal.aborted && requestId === latestRequestRef.current && date === activeDateRef.current && data.date === date) {
         if (previousSnapshot.current.date === data.date && data.date === date && previousSnapshot.current.complete && !data.partial) {
           const goal = detectGoalEvent(previousSnapshot.current.matches, data.matches);
           if (goal) setGoalEvent(goal);
         }
-        previousSnapshot.current = { date: data.date, matches: data.matches, complete: !data.partial };
-        setFeed(data); setError(null);
+        const merged = reconcileFeed(latestFeedRef.current, data);
+        latestFeedRef.current = merged;
+        previousSnapshot.current = { date: merged.date, matches: merged.matches, complete: !data.partial };
+        setFeed(merged); setError(null);
       }
     } catch (cause) {
-      if (!signal.aborted) setError(cause instanceof Error ? cause.message : "Không thể cập nhật dữ liệu");
+      if (!signal.aborted && requestId === latestRequestRef.current && date === activeDateRef.current)
+        setError(cause instanceof Error ? cause.message : "Không thể cập nhật dữ liệu");
     } finally {
-      if (!signal.aborted) setLoading(false);
+      if (!signal.aborted && requestId === latestRequestRef.current) setLoading(false);
     }
   }, []);
 
@@ -318,7 +326,11 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
   }, [visible]);
 
   const dateTabs = Array.from({ length: 7 }, (_, i) => shiftDate(selectedDate, i - 3));
-  const chooseDate = (day: string) => { setSelectedDate(day); setStatus("all"); setError(null); setGoalEvent(null); };
+  const chooseDate = (day: string) => {
+    activeDateRef.current = day;
+    latestRequestRef.current++;
+    setSelectedDate(day); setStatus("all"); setError(null); setGoalEvent(null);
+  };
   const goToday = () => { setFavoritesOnly(false); setLeague("all"); setQuery(""); chooseDate(today); };
   const resetFilters = () => { setFavoritesOnly(false); setLeague("all"); setStatus("all"); setQuery(""); };
   const closeDialog = useCallback(() => setFocusedMatch(null), []);
@@ -417,7 +429,7 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
               </div>
               {favoritesOnly && <div className="filter-notice"><Heart size={15} /> Chỉ hiển thị trận yêu thích <button onClick={() => setFavoritesOnly(false)}>Bỏ lọc <X size={14} /></button></div>}
               {error && <div className="error-notice"><Info size={17} />Không thể cập nhật dữ liệu ({error}). Đang giữ kết quả cuối cùng.</div>}
-              {feed.partial && <div className="source-notice"><Info size={17} />Một số giải đấu đang tạm thiếu dữ liệu. Kết quả còn lại vẫn được hiển thị.</div>}
+              {feed.partial && <div className="source-notice"><Info size={17} />Một số nguồn đang gián đoạn. Các trận chưa cập nhật có thể hiển thị tỷ số từ lần tải trước.</div>}
               {loading && <><div className="loading-line"><span /></div><BallLoading /></>}
               <div className="results-list">
                 {leagueGroups.length ? leagueGroups.map(([leagueId, matches]) => {
