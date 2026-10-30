@@ -1,0 +1,328 @@
+/* Hallmark v2 — SPORTS247 / matchday after dark / immersive live scoreboard */
+/* Critique addressed: previous editorial screen was copy-heavy, flat and thin on real football identity; hero now belongs to actual matches. */
+:root {
+  --paper: #071510;
+  --white: #0d211a;
+  --ink: #f0f8e9;
+  --ink-soft: #b1c7b7;
+  --ink-muted: #91a79a;
+  --forest: #d2f56d;
+  --forest-dark: #07150f;
+  --lime: #d2f56d;
+  --lime-strong: #e5ffa3;
+  --lime-faint: #24422d;
+  --line: rgba(207, 240, 208, .13);
+  --line-strong: rgba(214, 246, 213, .22);
+  --red: #ff7964;
+  --red-bg: #3d211f;
+  --warning-bg: #322c1c;
+  --shadow: 0 25px 70px -40px rgba(0, 0, 0, .78);
+  --font-main: "Segoe UI", "Aptos", system-ui, sans-serif;
+  --font-display: "Arial Narrow", "Aptos Display", "Segoe UI", sans-serif;
+  --font-nums: "Segoe UI", "Arial", sans-serif;
+  --surface-hover: #163527;
+  --surface-raised: #173329;
+  --surface-deep: #091b14;
+  --surface-glass: rgba(16, 44, 31, .75);
+  --spotlight-ink: #082014;
+  --pitch-mark: rgba(189, 242, 183, .19);
+  --spotlight-wash: radial-gradient(ellipse at 49% 19%, rgba(117, 228, 144, .26), transparent 55%), linear-gradient(133deg, #0b3522, #091a14 65%, #102d21);
+  --intro-wash: radial-gradient(ellipse at 50% 78%, #15472f, #040b08 71%);
+  --stadium-shine: rgba(232, 255, 209, .23);
+  --stadium-black: rgba(3, 13, 9, .74);
+  --lime-veil: rgba(210, 245, 109, .1);
+  --crowd-white: rgba(213, 246, 174, .5);
+  --ball-white: #f3f9e9;
+  --ball-black: #102923;
+  --ball-stroke: #537766;
+  --mascot-scarf: #ffae6c;
+  --mascot-cheek: #ff8d78;
+  --light-blur: rgba(174, 252, 178, .15);
+  --dark-text: #071910;
+  --snow-shadow: rgba(228, 255, 222, .4);
+  --aside-surface: #0d241c;
+}
+
+html, body { overflow-x: clip; }
+body { background: var(--paper); color: var(--ink); }
+.app-shell { background: radial-gradient(ellipse at 50% -12%, var(--lime-veil), transparent 42%), var(--paper); }
+.site-header { min-height: 74px; height: 74px; background: var(--surface-deep); border-bottom: 1px solid var(--line-strong); position: relative; }
+.brand-wordmark { color: var(--ink); font-size: 28px; letter-spacing: -1.7px; font-weight: 950; }
+.brand-wordmark b { color: var(--lime); }
+.brand-wordmark .wordmark-period { background: var(--red); }
+.nav-link { color: var(--ink-soft); font-weight: 650; }
+.nav-link:hover, .nav-link.selected { color: var(--lime); }
+.nav-link.selected::after { background: var(--lime); }
+.nav-count { background: var(--red-bg); color: var(--red); }
+.favorites-link { background: var(--surface-hover); color: var(--ink); border-color: var(--line-strong); }
+.favorites-link:hover, .favorites-link.active { color: var(--lime); background: var(--lime-faint); }
+.header-refresh { background: var(--lime); color: var(--dark-text); }
+.header-refresh:hover { background: var(--lime-strong); }
+.header-separator { background: var(--line-strong); }
+.clock-label, .clock-label span { color: var(--ink-soft); }
+
+/* Broadcast ribbon: the doubled track has a seamless transform-only loop. */
+.score-ticker { margin: 17px auto 0; min-height: 76px; width: min(calc(100% - 64px), 1316px); background: var(--surface-raised); border: 1px solid var(--line-strong); box-shadow: none; border-radius: 13px; }
+.ticker-label { z-index: 1; background: var(--lime); min-width: 136px; padding: 14px 19px; color: var(--dark-text); gap: 9px; }
+.ticker-label strong { font-size: 12px; letter-spacing: -.25px; line-height: 1.15; }
+.ticker-events { flex: 1; overflow: hidden; scrollbar-width: none; }
+.ticker-track { display: flex; width: max-content; min-width: 100%; animation: ticker-move 50s linear infinite; }
+.ticker-set { display: flex; flex-shrink: 0; }
+.score-ticker:hover .ticker-track, .score-ticker:focus-within .ticker-track { animation-play-state: paused; }
+.ticker-event { min-width: 242px; padding: 13px 16px; background: transparent; color: var(--ink); border-right-color: var(--line-strong); }
+.ticker-event small { color: var(--ink-muted); margin-bottom: 8px; font-size: 10px; }
+.ticker-event > div { gap: 7px; }
+.ticker-event > div span:not(.team-badge) { max-width: 44px; }
+.ticker-event strong { color: var(--lime); font-size: 15px; }
+.ticker-event:hover { background: var(--surface-hover); }
+.ticker-event .team-badge { filter: drop-shadow(0 2px 5px var(--stadium-black)); }
+
+.workspace { padding-top: 25px; }
+.section-heading { margin-bottom: 15px; align-items: center; }
+.matchday-heading-kicker { color: var(--lime); font-weight: 800; font-size: 11px; letter-spacing: normal; }
+.section-heading h1 { margin: 3px 0 0; letter-spacing: -2.6px; line-height: 1; font-weight: 920; font-size: clamp(36px, 4.4vw, 54px); text-transform: uppercase; text-wrap: balance; }
+.section-heading h1 span { color: var(--lime); }
+.update-indicator { background: transparent; border-color: var(--line-strong); color: var(--ink-soft); padding: 10px 13px; }
+.update-stamp { color: var(--ink-muted); }
+.status-orb { background: var(--lime); }
+
+/* Signature stadium. Purely decorative marks sit behind real provider crests. */
+.spotlight { min-width: 0; min-height: 386px; margin-bottom: 22px; position: relative; isolation: isolate; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 22px; background: var(--spotlight-wash); box-shadow: 0 25px 70px -35px var(--stadium-black); padding: 22px 34px 13px; }
+.spotlight-stadium { pointer-events: none; position: absolute; inset: 0; z-index: -1; background: radial-gradient(ellipse at 50% 105%, var(--light-blur), transparent 60%); }
+.spotlight-pitch { position: absolute; width: 70%; height: 80%; left: 15%; bottom: -66%; border: 2px solid var(--pitch-mark); border-radius: 50%; box-shadow: 0 0 0 45px var(--stadium-black), 0 0 0 47px var(--pitch-mark); transform: perspective(440px) rotateX(54deg); }
+.spotlight-stadium::before { content: ""; position: absolute; inset: -80px 0 0; background: repeating-linear-gradient(90deg, transparent 0 22%, var(--pitch-mark) 22.08% 22.16%, transparent 22.24% 44%); opacity: .12; }
+.spotlight-stadium::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, var(--stadium-black), transparent 27%, transparent 73%, var(--stadium-black)); opacity: .48; }
+.spotlight-light { position: absolute; width: 33%; height: 130%; top: -63%; background: radial-gradient(ellipse at top, var(--stadium-shine), transparent 65%); filter: blur(12px); opacity: .9; }
+.spotlight-light-a { left: -7%; transform: rotate(-24deg); }
+.spotlight-light-b { right: -7%; transform: rotate(24deg); }
+.spotlight-top, .spotlight-bottom { display: flex; justify-content: space-between; align-items: center; gap: 15px; position: relative; z-index: 1; }
+.spotlight-kicker { font-size: 11px; color: var(--lime); font-weight: 850; letter-spacing: normal; display: inline-flex; align-items: center; gap: 8px; }
+.spotlight-signal { width: 8px; height: 8px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 5px var(--red-bg); }
+.spotlight-competition, .spotlight-location { color: var(--ink-soft); font-size: 12px; }
+.spotlight-competition { text-align: right; }
+.spotlight-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(175px, .9fr) minmax(0, 1fr); align-items: center; gap: 10px; min-height: 283px; }
+.spotlight-club { display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 0; }
+.spotlight-crest { height: 132px; width: 132px; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle, var(--stadium-shine), transparent 70%); filter: drop-shadow(0 20px 20px var(--stadium-black)); }
+.spotlight-crest .team-badge { width: 105px !important; height: 105px !important; }
+.spotlight-crest .team-image { object-fit: contain; filter: drop-shadow(0 4px 7px var(--stadium-black)); }
+.spotlight-club strong { max-width: 280px; margin-top: 4px; font-size: clamp(17px, 2vw, 24px); font-weight: 850; line-height: 1.2; overflow-wrap: break-word; }
+.spotlight-club > span { color: var(--ink-muted); font-size: 11px; margin-top: 6px; }
+.spotlight-center { display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 0; }
+.spotlight-status { padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: 999px; font-size: 11px; font-weight: 800; color: var(--lime); }
+.spotlight-status.is-live { background: var(--red-bg); color: var(--red); border-color: var(--red); }
+.spotlight-score { font-size: clamp(44px, 6vw, 80px); line-height: 1.2; font-weight: 950; color: var(--ink); letter-spacing: -3px; white-space: nowrap; text-shadow: 0 8px 28px var(--stadium-black); animation: score-reveal .4s ease-out both; }
+.spotlight-date { font-size: 12px; color: var(--ink-soft); }
+.spotlight-open { display: inline-flex; align-items: center; gap: 8px; margin-top: 18px; padding: 10px 17px; border: 1px solid var(--lime); border-radius: 999px; background: var(--lime); color: var(--dark-text); font-size: 12px; font-weight: 800; transition: transform .18s ease, background .18s ease; }
+.spotlight-open:hover { transform: translateY(-2px); background: var(--lime-strong); }
+.spotlight-bottom { border-top: 1px solid var(--line-strong); padding-top: 12px; }
+.spotlight-location { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spotlight-controls { display: flex; align-items: center; gap: 12px; }
+.spotlight-controls button { background: var(--surface-glass); border: 1px solid var(--line-strong); border-radius: 50%; color: var(--ink); height: 32px; width: 32px; display: grid; place-items: center; transition: background .2s ease; }
+.spotlight-controls button:hover { background: var(--surface-hover); }
+.spotlight-count { font-size: 11px; font-weight: 800; color: var(--lime); white-space: nowrap; }
+.spotlight-progress { height: 2px; background: var(--lime); position: absolute; bottom: 0; left: 0; width: 100%; transform-origin: left center; animation: spotlight-progress 6s linear both; }
+.spotlight-empty { display: flex; flex-direction: column; justify-content: center; }
+.spotlight-empty-content h2 { font-weight: 900; letter-spacing: -2px; font-size: clamp(32px, 5vw, 60px); margin: 18px 0 5px; }
+.spotlight-empty-content p { color: var(--ink-soft); }
+
+/* Scores: preserve density while giving each provider crest an obvious role. */
+.date-panel { background: var(--white); color: var(--ink); border-color: var(--line-strong); box-shadow: none; }
+.date-panel-title { color: var(--ink); }
+.date-panel-title svg { color: var(--lime); }
+.date-tab.selected { color: var(--dark-text); background: var(--lime); }
+.date-tab:hover, .date-arrow:hover { background: var(--surface-hover); color: var(--ink); }
+.date-tab.selected:hover { background: var(--lime-strong); color: var(--dark-text); }
+.today-link { background: var(--surface-hover); color: var(--lime); }
+.today-link:hover { background: var(--lime-faint); }
+.stats-strip { margin: 23px 0 24px; padding-bottom: 19px; }
+.stat-box > strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+.stat-box:nth-child(2) > strong { color: var(--red); }
+.results-heading h2 { color: var(--ink); }
+.status-filters { border-color: var(--line-strong); }
+.status-tab.chosen { background: var(--lime); color: var(--dark-text); }
+.status-tab:hover { background: var(--surface-hover); color: var(--ink); }
+.status-tab.chosen:hover { background: var(--lime-strong); color: var(--dark-text); }
+.search-control { border-color: var(--line-strong); color: var(--ink-soft); }
+.search-control input { color: var(--ink); }
+.search-control input::placeholder { color: var(--ink-muted); }
+.league-section { background: var(--white); color: var(--ink); border-color: var(--line-strong); box-shadow: none; }
+.league-row-head { background: var(--surface-deep); border-bottom-color: var(--line-strong); }
+.league-row-head h3 { color: var(--ink); }
+.league-icon { color: var(--lime); background: var(--surface-hover); border-color: var(--line-strong); }
+.match-row { border-color: var(--line); }
+.match-row:hover { background: var(--surface-hover); }
+.match-row.is-live { box-shadow: inset 3px 0 var(--red); }
+.match-open { padding-top: 19px; padding-bottom: 19px; }
+.match-team { font-size: 14px; gap: 11px; }
+.match-team .team-badge { width: 32px !important; height: 32px !important; }
+.match-team .team-image { filter: drop-shadow(0 3px 4px var(--stadium-black)); }
+.match-clock { color: var(--ink); }
+.match-scores { color: var(--ink); font-size: 18px; }
+.match-scores.scores-live { color: var(--red); }
+.match-minute { color: var(--red); }
+.team-initials { background: var(--lime-faint); color: var(--lime); }
+.save-button.saved { color: var(--lime); }
+.save-button:hover { color: var(--lime); }
+.empty-results { background: var(--white); border-color: var(--line-strong); }
+.empty-results strong { color: var(--ink); }
+.empty-results button { background: var(--lime); color: var(--dark-text); }
+.sidebar-card { background: var(--aside-surface); color: var(--ink); border-color: var(--line-strong); }
+.aside-heading h3 { color: var(--ink); }
+.aside-heading svg { color: var(--lime); }
+.competition-item { color: var(--ink-soft); }
+.competition-item:hover { background: var(--surface-hover); color: var(--ink); }
+.competition-item.active { color: var(--lime); background: var(--lime-faint); }
+.competition-item.active .competition-mark { background: var(--lime); color: var(--dark-text); border-color: var(--lime); }
+.competition-mark { color: var(--lime); background: var(--surface-hover); border-color: var(--line-strong); }
+.coverage-illustration { background: var(--surface-deep); }
+.pitch-live { background: var(--lime); color: var(--dark-text); }
+.coverage-footer, .sources-card a, .site-footer b { color: var(--lime); }
+.site-footer { border-top-color: var(--line-strong); }
+.error-notice, .source-notice { color: var(--ink); border-color: var(--line-strong); }
+.filter-notice button { color: var(--lime); }
+.loading-line span { background: var(--lime); }
+
+/* Stadium entrance: a skip-able single-session animation, no remote media. */
+.matchday-intro { position: fixed; z-index: 200; inset: 0; display: grid; place-items: center; background: var(--intro-wash); isolation: isolate; color: var(--ink); overflow: hidden; }
+.matchday-intro::before { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 4%, var(--pitch-mark) 4.06% 4.14%, transparent 4.2% 8%); opacity: .18; }
+.intro-floodlights { position: absolute; top: 12%; left: 12%; right: 12%; display: flex; justify-content: space-between; }
+.intro-floodlights i { height: 9px; width: 14%; background: var(--ball-white); border-radius: 99px; box-shadow: 0 0 26px 9px var(--stadium-shine), 0 0 100px 45px var(--light-blur); transform: rotate(-7deg); }
+.intro-floodlights i:nth-child(even) { transform: rotate(7deg); }
+.intro-stadium { position: absolute; left: -10%; right: -10%; bottom: -7%; height: 35%; border-radius: 50% 50% 0 0; background: var(--surface-raised); box-shadow: 0 -14px 95px var(--light-blur); border-top: 1px solid var(--line-strong); overflow: hidden; }
+.intro-crowd { position: absolute; inset: 0; background: radial-gradient(circle, var(--crowd-white) 1px, transparent 2px); background-size: 13px 10px; opacity: .45; animation: crowd-breathe 1.6s ease-in-out infinite alternate; }
+.intro-stage { display: grid; place-items: center; position: relative; z-index: 1; }
+.intro-label { font-size: 22px; font-weight: 950; letter-spacing: -1px; }
+.intro-label span { color: var(--lime); }
+.intro-football { width: clamp(110px, 16vw, 210px); margin: 35px 0; will-change: transform; filter: drop-shadow(0 25px 50px var(--stadium-black)); }
+.intro-football-art { width: 100%; height: auto; display: block; }
+.intro-stage p { font-weight: 850; letter-spacing: -.8px; font-size: 28px; margin: 0; }
+.intro-flash { background: var(--ball-white); position: absolute; z-index: 3; inset: 0; opacity: 0; pointer-events: none; }
+.intro-skip { position: absolute; z-index: 4; bottom: 25px; right: 30px; display: flex; align-items: center; gap: 7px; color: var(--ink); border: 1px solid var(--line-strong); border-radius: 999px; padding: 10px 17px; background: var(--surface-glass); }
+.ball-base { fill: var(--ball-white); stroke: var(--ball-stroke); stroke-width: 2; }
+.ball-seams { fill: none; stroke: var(--ball-stroke); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.ball-panel { fill: var(--ball-black); }
+.ball-sheen { fill: var(--snow-shadow); }
+.ball-loading { display: inline-flex; align-items: center; gap: 9px; margin: 8px 0 17px; color: var(--ink-soft); font-size: 12px; }
+.loading-football { height: 25px; width: 25px; animation: ball-spin .9s linear infinite; }
+
+/* Small original character: goal announcements derive from consecutive provider snapshots. */
+.mascot-dock { --mascot-travel: min(40vw, 520px); position: fixed; right: 24px; bottom: 21px; z-index: 30; display: flex; flex-direction: column; align-items: flex-end; pointer-events: none; will-change: transform; animation: mascot-travel 23s ease-in-out infinite; }
+.mascot-dock:hover, .mascot-dock:focus-within, .mascot-dock.is-celebrating { animation-play-state: paused; }
+.mascot-action { pointer-events: auto; position: relative; display: block; width: 86px; height: 94px; border: 0; background: transparent; padding: 0; filter: drop-shadow(0 10px 15px var(--stadium-black)); animation: mascot-float 3.1s ease-in-out infinite; transform-origin: 50% 75%; }
+.mascot-action:hover { filter: drop-shadow(0 10px 24px var(--light-blur)); }
+.mascot-body { position: absolute; display: block; width: 72px; height: 72px; top: 4px; left: 7px; }
+.mascot-football { width: 100%; height: 100%; }
+.mascot-eye { position: absolute; top: 28px; height: 9px; width: 6px; background: var(--ball-black); border-radius: 50%; animation: mascot-blink 5s ease-in-out infinite; translate: var(--gaze-x, 0px) 0; transition: translate .15s ease; }
+.mascot-eye.left { left: 26px; }
+.mascot-eye.right { right: 25px; }
+.mascot-smile { position: absolute; width: 18px; height: 8px; top: 43px; left: 27px; border-bottom: 3px solid var(--ball-black); border-radius: 0 0 50% 50%; }
+.mascot-scarf { position: absolute; top: 60px; left: 5px; right: 4px; height: 13px; border-radius: 50%; background: var(--mascot-scarf); transform: rotate(-7deg); z-index: 2; }
+.mascot-foot { width: 13px; height: 20px; position: absolute; bottom: 0; background: var(--mascot-scarf); border-radius: 5px 5px 9px 9px; }
+.mascot-foot.left { left: 22px; transform: rotate(16deg); }
+.mascot-foot.right { right: 21px; transform: rotate(-16deg); }
+.mascot-dock.is-celebrating .mascot-action { animation: mascot-celebrate .55s ease-in-out infinite alternate; }
+.mascot-message { max-width: 250px; padding: 10px 13px; color: var(--ink); font-size: 12px; line-height: 1.5; background: var(--surface-glass); backdrop-filter: blur(15px); border: 1px solid var(--line-strong); border-radius: 13px 13px 3px 13px; margin-bottom: 8px; box-shadow: var(--shadow); }
+.mascot-message strong { color: var(--lime); }
+.mascot-muted { font-size: 9px; color: var(--ink-muted); display: inline-flex; align-items: center; gap: 3px; background: var(--surface-deep); border-radius: 99px; padding: 3px 8px; margin-top: 1px; }
+
+/* Match detail is elevated above motion overlays and usable on smaller screens. */
+.dialog-backdrop { z-index: 80; }
+.match-dialog { background: var(--white); color: var(--ink); border: 1px solid var(--line-strong); }
+.dialog-scoreline { background: var(--surface-deep); }
+.dialog-team strong, .dialog-score > .mono { color: var(--ink); }
+.dialog-team small, .dialog-score small { color: var(--ink-soft); }
+.dialog-score .mono em { color: var(--lime); }
+.dialog-topline .eyebrow, .dialog-facts svg { color: var(--lime); }
+.dialog-facts strong { color: var(--ink); }
+.icon-button { background: var(--surface-hover); color: var(--ink); }
+.icon-button:hover { background: var(--lime-faint); }
+.broadcast-note { background: var(--surface-deep); color: var(--ink-soft); }
+.dialog-link { background: var(--lime); color: var(--dark-text); }
+.dialog-link:hover { background: var(--lime-strong); }
+
+@keyframes ticker-move { to { transform: translateX(-50%); } }
+@keyframes spotlight-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes score-reveal { from { transform: translateY(10px) scale(.94); opacity: .4; } to { transform: translateY(0) scale(1); opacity: 1; } }
+@keyframes crowd-breathe { to { opacity: .75; transform: translateY(-3px); } }
+@keyframes ball-spin { to { transform: rotate(360deg); } }
+@keyframes mascot-float { 50% { transform: translateY(-7px) rotate(3deg); } }
+@keyframes mascot-blink { 48%, 52% { transform: scaleY(.18); } 54% { transform: scaleY(1); } }
+@keyframes mascot-celebrate { to { transform: translateY(-22px) rotate(13deg) scale(1.08); } }
+@keyframes mascot-travel {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  22% { transform: translate3d(calc(var(--mascot-travel) * -.4), -19px, 0) rotate(-4deg); }
+  50% { transform: translate3d(calc(var(--mascot-travel) * -1), -3px, 0) rotate(-2deg); }
+  76% { transform: translate3d(calc(var(--mascot-travel) * -.45), -25px, 0) rotate(4deg); }
+}
+
+@media (max-width: 980px) {
+  .spotlight { min-height: 340px; }
+  .spotlight-body { min-height: 236px; }
+  .spotlight-crest { width: 110px; height: 110px; }
+  .spotlight-crest .team-badge { width: 90px !important; height: 90px !important; }
+}
+@media (max-width: 690px) {
+  .site-header { min-height: 110px; }
+  .brand-wordmark { font-size: 25px; }
+  .header-navigation { height: 44px; }
+  .score-ticker { width: calc(100% - 24px); margin-top: 12px; min-height: 70px; }
+  .ticker-label { min-width: 76px; padding: 10px; }
+  .ticker-label strong { font-size: 10px; }
+  .ticker-event { min-width: 220px; }
+  .workspace { padding: 19px 12px 24px; }
+  .section-heading { margin-bottom: 14px; }
+  .section-heading h1 { font-size: 35px; margin-top: 3px; }
+.matchday-heading-kicker { font-size: 9px; letter-spacing: normal; }
+  .update-indicator { max-width: 142px; padding: 5px 0 5px 8px; font-size: 10px; gap: 5px; border: 0; }
+  .update-indicator .update-stamp { display: none; }
+  .spotlight { border-radius: 15px; padding: 15px 12px 11px; min-height: 318px; margin-bottom: 15px; }
+  .spotlight-top { gap: 5px; }
+  .spotlight-kicker { font-size: 9px; letter-spacing: .5px; }
+  .spotlight-competition { font-size: 10px; max-width: 125px; }
+  .spotlight-body { gap: 2px; grid-template-columns: minmax(0,1fr) minmax(116px,1.2fr) minmax(0,1fr); min-height: 230px; }
+  .spotlight-crest { width: 80px; height: 87px; }
+  .spotlight-crest .team-badge { width: 72px !important; height: 72px !important; }
+  .spotlight-club strong { font-size: 12px; line-height: 1.25; margin: 3px 0 0; }
+  .spotlight-club > span { font-size: 9px; }
+  .spotlight-score { font-size: clamp(29px, 8.3vw, 44px); letter-spacing: -1.5px; }
+  .spotlight-status { font-size: 9px; padding: 4px 6px; }
+  .spotlight-date { font-size: 10px; }
+  .spotlight-open { font-size: 10px; padding: 9px 10px; gap: 3px; margin-top: 13px; }
+  .spotlight-bottom { padding-top: 11px; }
+  .spotlight-location { font-size: 10px; max-width: 155px; }
+  .spotlight-controls { gap: 5px; }
+  .spotlight-controls button { width: 27px; height: 27px; }
+  .spotlight-count { font-size: 10px; }
+  .date-panel { padding: 5px; }
+  .date-tab.selected { background: var(--lime); }
+  .stat-box > strong { font-size: 27px; }
+  .results-heading { margin-bottom: 13px; }
+  .match-team .team-badge { width: 29px !important; height: 29px !important; }
+  .match-team { font-size: 12px; gap: 7px; }
+  .match-open { grid-template-columns: 54px minmax(0,1fr) 32px; padding-top: 12px; padding-bottom: 12px; }
+  .match-scores { font-size: 16px; }
+  .mascot-dock { --mascot-travel: min(20vw, 82px); right: 8px; bottom: 10px; }
+  .mascot-action { transform: scale(.78); transform-origin: bottom right; width: 72px; height: 76px; animation: none; }
+  .mascot-body { transform: scale(.83); transform-origin: top left; }
+  .mascot-scarf { top: 54px; }
+  .mascot-foot { height: 14px; }
+  .mascot-muted { display: none; }
+  .mascot-message { max-width: 180px; }
+  .dialog-backdrop { z-index: 90; }
+}
+@media (max-width: 370px) {
+  .spotlight { padding-inline: 9px; }
+  .spotlight-crest { width: 72px; }
+  .spotlight-crest .team-badge { width: 65px !important; height: 65px !important; }
+  .spotlight-club strong { font-size: 11px; }
+  .spotlight-score { font-size: 28px; }
+  .spotlight-open { padding: 8px 6px; font-size: 9px; }
+  .spotlight-location { max-width: 120px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mascot-dock { will-change: auto; animation: none; }
+  .matchday-intro { display: none; }
+  .ticker-track, .loading-football, .mascot-action, .mascot-eye, .spotlight-progress, .spotlight-score, .intro-crowd { animation: none; }
+  .ticker-events { overflow-x: auto; scrollbar-width: thin; }
+  .ticker-set[aria-hidden="true"] { display: none; }
+}
