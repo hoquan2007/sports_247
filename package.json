@@ -14,7 +14,7 @@
     "tailwindcss"
   ],
   "engines": {
-    "node": ">=24"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "next dev",
