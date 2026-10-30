@@ -1,0 +1,12 @@
+# Local development caches and browser QA profiles
+temp/
+tools/
+.taste-skill/
+node_modules/
+.next/
+tsconfig.tsbuildinfo
+
+# Local and generated information
+.env
+.env.*
+*.log
