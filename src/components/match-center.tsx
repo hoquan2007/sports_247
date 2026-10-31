@@ -10,11 +10,14 @@ import {
   Search, Star, Trophy, Tv, X,
 } from "lucide-react";
 import { BallLoading, MatchdayIntro, MatchdayMascot } from "@/components/matchday-motion";
+import { LeagueBadge } from "@/components/league-badge";
+import { LeagueStandings } from "@/components/league-standings";
 import { detectGoalEvent, type GoalEvent } from "@/lib/football/goal-event";
 import { reconcileFeed } from "@/lib/football/feed-state";
 import type { DetailEvent, DetailLineup, DetailStatistic, MatchDetails } from "@/lib/football/match-details";
 import { LEAGUES, shiftDate, vietnamDate, VIETNAM_TIMEZONE } from "@/lib/football/leagues";
 import type { FootballMatch, FootballTeam, MatchFeed, MatchStatus } from "@/lib/football/types";
+import type { WatchResult } from "@/lib/football/watch";
 
 type StatusFilter = "all" | MatchStatus;
 gsap.registerPlugin(useGSAP);
@@ -88,12 +91,13 @@ function MatchRow({ match, saved, onSave, onOpen }: {
   );
 }
 
-type DetailTab = "overview" | "stats" | "lineups" | "timeline";
+type DetailTab = "overview" | "stats" | "lineups" | "timeline" | "watch";
 const DETAIL_TABS: { id: DetailTab; title: string }[] = [
   { id: "overview", title: "Tổng quan" },
   { id: "stats", title: "Thống kê" },
   { id: "lineups", title: "Đội hình" },
   { id: "timeline", title: "Diễn biến" },
+  { id: "watch", title: "Xem trực tiếp" },
 ];
 
 function EmptyDetail({ children }: { children: React.ReactNode }) {
@@ -157,6 +161,21 @@ function LineupCard({ lineup, team }: { lineup: DetailLineup | undefined; team: 
   </div>;
 }
 
+const FORM_LABELS = { W: "Thắng", D: "Hòa", L: "Thua" } as const;
+function RecentForm({ team }: { team: FootballTeam }) {
+  return <div className="match-form-row">
+    <span className="match-form-team">{team.name}</span>
+    <span className="match-form-results" aria-label={team.form?.length
+      ? `${team.name}: ${team.form.map((result) => FORM_LABELS[result]).join(", ")}`
+      : `${team.name}: chưa có dữ liệu phong độ`}>
+      {team.form?.length ? team.form.map((result, index) =>
+        <span key={index} className={`match-form-chip match-form-${result.toLowerCase()}`} aria-hidden="true"
+          title={FORM_LABELS[result]}>{result === "W" ? "T" : result === "D" ? "H" : "B"}</span>)
+        : <span className="match-form-missing">Chưa có dữ liệu</span>}
+    </span>
+  </div>;
+}
+
 function MatchDialog({ match, onClose }: { match: FootballMatch; onClose: () => void }) {
   const dialogRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -164,7 +183,28 @@ function MatchDialog({ match, onClose }: { match: FootballMatch; onClose: () => 
   const [details, setDetails] = useState<MatchDetails | null>(null);
   const [detailError, setDetailError] = useState(false);
   const [retryNumber, setRetryNumber] = useState(0);
+  const [watch, setWatch] = useState<WatchResult | null>(null);
+  const [watchError, setWatchError] = useState(false);
+  const [watchRetry, setWatchRetry] = useState(0);
   const supported = match.source === "ESPN";
+
+  useEffect(() => {
+    if (tab !== "watch" || !supported) return;
+    const controller = new AbortController();
+    const load = async () => {
+      try {
+        const params = new URLSearchParams({ league: match.leagueId, event: match.eventId });
+        const response = await fetch(`/api/watch?${params}`, { signal: controller.signal, cache: "no-store" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const result = await response.json() as WatchResult;
+        if (!controller.signal.aborted) { setWatch(result); setWatchError(false); }
+      } catch {
+        if (!controller.signal.aborted) setWatchError(true);
+      }
+    };
+    void load();
+    return () => controller.abort();
+  }, [tab, supported, match.leagueId, match.eventId, watchRetry]);
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -219,6 +259,34 @@ function MatchDialog({ match, onClose }: { match: FootballMatch; onClose: () => 
     : "ESPN chưa cung cấp dữ liệu cho mục này ở trận đấu hiện tại.";
   const showEvents = details?.events ?? [];
   const renderDetail = () => {
+    if (tab === "watch") {
+      const officialGuide = match.leagueId === "uefa.champions"
+        ? "https://www.uefa.com/uefachampionsleague/news/0253-0d82037aaedd-f371c464f919-1000--/"
+        : match.leagueId === "uefa.europa"
+          ? "https://www.uefa.com/uefaeuropaleague/news/028d-1ae6d62165d6-69b17b354deb-1000/"
+          : null;
+      return <section className="detail-content-card watch-card" aria-label="Nguồn phát trực tiếp hợp pháp">
+        <div className="detail-section-heading"><h3><Tv size={17} /> Xem trận đấu</h3><small>Đối chiếu nguồn chính thức</small></div>
+        {watch?.status === "ready" ? <>
+          <div className="watch-frame"><iframe src={watch.embedUrl} title={`${watch.title} — ${match.home.name} vs ${match.away.name}`}
+            allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowFullScreen
+            referrerPolicy="strict-origin-when-cross-origin" loading="lazy" /></div>
+          <p className="watch-note">{watch.broadcastType === "live" ? "Trận đang diễn ra — nguồn phát từ ScoreBat." :
+            watch.broadcastType === "replay" ? "Trận đã kết thúc — đây có thể là video phát lại." :
+              watch.broadcastType === "upcoming" ? "Trận chưa bắt đầu — video có thể là tín hiệu chờ." :
+                "Chưa xác minh được trạng thái trận theo dữ liệu ESPN."} Luồng có thể giới hạn theo khu vực hoặc yêu cầu quyền xem.</p>
+          <a className="detail-subtle-link" href={watch.embedUrl} target="_blank" rel="noopener noreferrer">Mở nguồn phát chính thức <ExternalLink size={15} /></a>
+        </> : <div className="detail-empty watch-state" role="status"><Tv size={22} />
+          <p>{!supported ? "Nguồn trận đấu này chưa hỗ trợ đối chiếu video." : watchError ? "Không thể kết nối dịch vụ video chính thức." : watch?.message ?? "Đang kiểm tra xem trận đấu có nguồn phát được phép nhúng..."}</p>
+          {(watchError || watch?.status === "unavailable") && <button className="detail-retry" onClick={() => { setWatch(null); setWatchError(false); setWatchRetry((n) => n + 1); }}>
+            Thử lại <RefreshCw size={14} /></button>}
+        </div>}
+        {officialGuide && <a className="watch-guide" href={officialGuide} target="_blank" rel="noopener noreferrer">
+          Xem danh sách đơn vị sở hữu quyền phát sóng tại Việt Nam trên UEFA <ExternalLink size={15} />
+        </a>}
+        <p className="watch-note">Thông tin kênh từ ESPN có thể áp dụng cho quốc gia khác. Chỉ phát video khi nhà cung cấp cho phép nhúng.</p>
+      </section>;
+    }
     if (!supported) return <EmptyDetail>Trận này dùng nguồn OpenLigaDB, chưa có dữ liệu chi tiết ESPN. Bạn vẫn có thể xem lịch, tỷ số và thông tin trận phía trên.</EmptyDetail>;
     if (!hasDetail && !detailError) return <div className="detail-loading" role="status"><RefreshCw className="spinning" size={20} /> Đang tải dữ liệu trận đấu từ ESPN...</div>;
     if (!hasDetail && detailError) return <div className="detail-empty" role="status"><Info size={22} />
@@ -282,7 +350,7 @@ function MatchDialog({ match, onClose }: { match: FootballMatch; onClose: () => 
     <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="match-dialog" role="dialog" aria-modal="true" aria-label={`Chi tiết ${match.home.name} - ${match.away.name}`} ref={dialogRef}>
         <div className="dialog-topline">
-          <span className="eyebrow">TRUNG TÂM TRẬN ĐẤU <span className="dialog-separator">/</span> {match.leagueName}</span>
+          <span className="eyebrow dialog-league-label">TRUNG TÂM TRẬN ĐẤU <span className="dialog-separator">/</span> <LeagueBadge leagueId={match.leagueId} size={26} /> {match.leagueName}</span>
           <button onClick={onClose} className="icon-button" aria-label="Đóng" ref={closeRef}><X size={20} /></button>
         </div>
         <p className="dialog-datetime"><CalendarDays size={15} /> {dateOf(match.startTime)} · {timeOf(match.startTime)} (GMT+7)</p>
@@ -308,12 +376,30 @@ function MatchDialog({ match, onClose }: { match: FootballMatch; onClose: () => 
             {details?.attendance && <div><Trophy size={17} /><span><small>Khán giả</small><strong>{details.attendance}</strong></span></div>}
             {details?.referee && <div><Activity size={17} /><span><small>Trọng tài</small><strong>{details.referee}</strong></span></div>}
           </div>}
+          {tab === "overview" && (match.home.form?.length || match.away.form?.length) ?
+            <section className="detail-content-card match-form-card" aria-label="Phong độ gần đây">
+              <div className="detail-section-heading"><h3>Phong độ gần đây</h3><small>Trận thắng / hòa / bại theo ESPN</small></div>
+              <RecentForm team={match.home} />
+              <RecentForm team={match.away} />
+            </section> : null}
+          {tab === "overview" && details?.headToHead.length ?
+            <section className="detail-content-card" aria-label="Lịch sử đối đầu">
+              <div className="detail-section-heading"><h3>Đối đầu gần đây</h3><small>Theo ESPN · tối đa 5 trận</small></div>
+              <ol className="head-to-head-list">
+                {details.headToHead.map((event) => <li key={event.id}>
+                  <time dateTime={event.date}>{dateOf(event.date, { month: "2-digit" })}</time>
+                  <span className="head-to-head-team">{event.homeId === details.homeId ? match.home.name : match.away.name}</span>
+                  <strong className="mono">{event.homeScore} : {event.awayScore}</strong>
+                  <span className="head-to-head-team">{event.awayId === details.awayId ? match.away.name : match.home.name}</span>
+                </li>)}
+              </ol>
+            </section> : null}
           {renderDetail()}
         </div>
         <div className="detail-footer">
           <p><Activity size={14} /> Dữ liệu trận: {match.source}. Kênh phát sóng có thể dành cho thị trường khác; video trực tiếp tùy thuộc bản quyền khu vực.</p>
           {match.matchUrl && <a className="dialog-link" href={match.matchUrl} target="_blank" rel="noopener noreferrer">
-            Xem trận trên ESPN <ExternalLink size={17} /></a>}
+            Xem thông tin trận trên ESPN <ExternalLink size={17} /></a>}
         </div>
       </section>
     </div>
@@ -369,7 +455,7 @@ function MatchSpotlight({ matches, onOpen }: { matches: FootballMatch[]; onOpen:
       <div className="spotlight-stadium" aria-hidden="true"><div className="spotlight-pitch" /><div className="spotlight-light spotlight-light-a" /><div className="spotlight-light spotlight-light-b" /></div>
       <div className="spotlight-top">
         <span className="spotlight-kicker"><span className="spotlight-signal" /> {active.status === "live" ? "Đang diễn ra" : "Trận cầu nổi bật"}</span>
-        <span className="spotlight-competition">{active.leagueName}</span>
+        <span className="spotlight-competition"><LeagueBadge leagueId={active.leagueId} size={23} /> {active.leagueName}</span>
       </div>
       <div className="spotlight-body" aria-live="off">
         <div className="spotlight-club">
@@ -557,7 +643,7 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
             {games.length ? <div className="ticker-track">
               {[0, 1].map((repeat) => <div className="ticker-set" key={repeat} aria-hidden={repeat === 1}>
                 {tickerGames.map((m) => <button key={`${repeat}-${m.id}`} className="ticker-event" tabIndex={repeat === 1 ? -1 : 0} onClick={() => setFocusedMatch(m)}>
-                  <small>{m.leagueName}</small>
+                  <small className="ticker-competition"><LeagueBadge leagueId={m.leagueId} size={20} /> {m.leagueName}</small>
                   <div><TeamBadge team={m.home} size={21} /><span>{m.home.shortName}</span><strong className="mono">{m.status === "scheduled" ? timeOf(m.startTime) : `${m.homeScore ?? "–"} : ${m.awayScore ?? "–"}`}</strong><span>{m.away.shortName}</span><TeamBadge team={m.away} size={21} /></div>
                 </button>)}
               </div>)}
@@ -629,7 +715,7 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
                   return (
                     <div className="league-section" key={leagueId}>
                       <div className="league-row-head">
-                        <span className="league-icon">{meta?.short.slice(0, 2) ?? "FC"}</span>
+                        <LeagueBadge leagueId={leagueId} size={39} className="league-icon" />
                         <div><h3>{meta?.name ?? matches[0].leagueName}</h3><small>{meta?.country ?? matches[0].leagueCountry}</small></div>
                         <span className="league-rows-count">{matches.length} trận</span>
                         <ChevronRight size={16} className="league-head-chevron" />
@@ -659,11 +745,12 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
                 </button>
                 {LEAGUES.map((item) => (
                   <button key={item.id} className={`competition-item ${league === item.id ? "active" : ""}`} onClick={() => setLeague(item.id)}>
-                    <span className="competition-mark">{item.short.slice(0, 2)}</span><span>{item.name}</span>
+                    <LeagueBadge leagueId={item.id} size={31} className="competition-mark" /><span>{item.name}</span>
                     <strong className="mono">{games.filter((m) => m.leagueId === item.id).length}</strong>
                   </button>
                 ))}
               </div>
+              <LeagueStandings leagueId={league} />
               <div className="sidebar-card coverage-card">
                 <div className="aside-heading"><div><span className="eyebrow">Cập nhật tự động</span><h3>Theo từng phút</h3></div><Radio size={18} /></div>
                 <div className="coverage-illustration">
@@ -676,7 +763,8 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
               <div className="sidebar-card sources-card" id="about-data">
                 <div className="aside-heading"><div><span className="eyebrow">Thông tin minh bạch</span><h3>Dữ liệu & bản quyền</h3></div><Info size={18} /></div>
                 <p>Lịch thi đấu và tỷ số lấy từ ESPN (API công khai, không chính thức); OpenLigaDB dùng dự phòng cho Bundesliga.</p>
-                <p>Logo do các nhà cung cấp dữ liệu lưu trữ và thuộc về chủ sở hữu tương ứng.</p>
+                <p>Logo giải lấy từ metadata ESPN; logo câu lạc bộ do nhà cung cấp dữ liệu lưu trữ. Nhãn hiệu thuộc chủ sở hữu tương ứng.</p>
+                <p>Video chỉ xuất hiện nếu nhà cung cấp có quyền nhúng, đã được cấu hình và có trận phù hợp.</p>
                 <a href="https://www.espn.com/soccer/" target="_blank" rel="noopener noreferrer">Nguồn dữ liệu <ArrowUpRight size={15} /></a>
               </div>
             </aside>

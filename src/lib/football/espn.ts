@@ -1,8 +1,11 @@
 import { LEAGUES, shiftDate, vietnamDate } from "./leagues";
+import { settleLimited } from "./settle-limited";
+import { parseRecentForm } from "./recent-form";
 import type { FootballMatch, FootballTeam, MatchFeed, MatchStatus } from "./types";
 
 interface EspnCompetitor {
   id?: string;
+  form?: string;
   homeAway?: string;
   score?: string;
   team?: { id?: string; displayName?: string; shortDisplayName?: string; logo?: string };
@@ -20,11 +23,13 @@ interface EspnEvent {
 
 function teamFromEspn(comp: EspnCompetitor): FootballTeam {
   const team = comp.team ?? {};
+  const form = parseRecentForm(comp.form);
   return {
     id: team.id ?? comp.id ?? "unknown",
     name: team.displayName ?? "Chưa xác định",
     shortName: team.shortDisplayName ?? team.displayName ?? "TBD",
     logo: team.logo?.startsWith("https://a.espncdn.com/") ? team.logo : null,
+    ...(form.length ? { form } : {}),
   };
 }
 
@@ -116,7 +121,8 @@ export async function getMatchFeed(date: string): Promise<MatchFeed> {
   // 00:00 Vietnamese local time = 17:00 UTC on the previous calendar day.
   const days = [shiftDate(date, -1), date];
   const tasks = LEAGUES.flatMap((league) => days.map((day) => ({ league, day })));
-  const responses = await Promise.allSettled(tasks.map(({ league, day }) => fetchEspn(league, day)));
+  // Bound upstream traffic as the competition list grows. Keep result order for error attribution.
+  const responses = await settleLimited(tasks.map(({ league, day }) => () => fetchEspn(league, day)), 16);
   const matches: FootballMatch[] = [];
   const errors: string[] = [];
   const germanSuccess = responses.some((r, i) => tasks[i].league.id === "ger.1" && r.status === "fulfilled");

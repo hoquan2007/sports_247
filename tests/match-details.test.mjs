@@ -67,7 +67,33 @@ test('Scheduled match summary with missing sections returns no invented data', (
   assert.deepEqual(detail.lineups, []);
   assert.deepEqual(detail.events, []);
   assert.deepEqual(detail.commentary, []);
+  assert.deepEqual(detail.headToHead, []);
   assert.equal(detail.referee, null);
+});
+
+test('Head-to-head history includes only valid completed meetings, newest first', () => {
+  const event = (id, date, homeId, awayId, homeScore, awayScore, status = 'post') => ({
+    id, date, status, competitors: [
+      { homeAway: 'home', team: { id: homeId }, score: homeScore },
+      { homeAway: 'away', team: { id: awayId }, score: awayScore },
+    ],
+  });
+  const detail = parseEspnMatchDetails({
+    header: sample.header,
+    seasonseries: [{ type: 'head-to-head', events: [
+      event('a', '2026-01-01T12:00:00Z', '363', '360', '1', '0'),
+      event('b', '2026-04-18T19:00:00Z', '363', '360', '0', '1'),
+      event('c', '2026-03-01T12:00:00Z', '360', '363', '2', '2'),
+      event('a', '2026-01-01T12:00:00Z', '363', '360', '1', '0'),
+      event('future', '2026-12-01T12:00:00Z', '363', '360', '0', '0', 'pre'),
+      event('wrong', '2026-02-01T12:00:00Z', '363', '999', '2', '1'),
+      event('badscore', '2026-02-02T12:00:00Z', '363', '360', 'x', '1'),
+    ] }],
+  });
+  assert.deepEqual(detail.headToHead.map(({ id, homeId, homeScore, awayScore }) =>
+    [id, homeId, homeScore, awayScore]), [
+    ['b', '363', 0, 1], ['c', '360', 2, 2], ['a', '363', 1, 0],
+  ]);
 });
 
 test('ESPN alternate event and formation fields remain usable', () => {

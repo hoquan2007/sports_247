@@ -1,3 +1,5 @@
+import type { FormOutcome } from "./recent-form";
+
 export type MatchStatus = "scheduled" | "live" | "finished";
 
 export interface FootballTeam {
@@ -5,6 +7,7 @@ export interface FootballTeam {
   name: string;
   shortName: string;
   logo: string | null;
+  form?: FormOutcome[];
 }
 
 export interface FootballMatch {
