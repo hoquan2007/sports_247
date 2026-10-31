@@ -73,6 +73,15 @@ export function matchScorebatVideo(entries: VideoMatch[], home: string, away: st
   return null;
 }
 
+/** The live feed is useful around kickoff, not for fixtures months away.
+ * Skip paid calls until shortly before kickoff and after the recent replay window.
+ */
+export function isScorebatFeedRelevant(kickoff: string, now = Date.now()): boolean {
+  const matchTime = Date.parse(kickoff);
+  return Number.isFinite(matchTime) && Number.isFinite(now) &&
+    now >= matchTime - 30 * 60_000 && now <= matchTime + 72 * 60 * 60_000;
+}
+
 interface EspnWatchHeader {
   header?: { competitions?: Array<{
     date?: string;
@@ -83,7 +92,8 @@ interface EspnWatchHeader {
   };
 }
 
-export async function getMatchWatch(league: string, event: string, viewerCountry: string | null = null): Promise<WatchResult> {
+export async function getMatchWatch(league: string, event: string, viewerCountry: string | null = null,
+  now = Date.now()): Promise<WatchResult> {
   const token = process.env.SCOREBAT_API_TOKEN?.trim();
   if (!token) return {
     status: "unconfigured",
@@ -108,6 +118,11 @@ export async function getMatchWatch(league: string, event: string, viewerCountry
   const away = header?.competitors?.find((c) => c.homeAway === "away")?.team?.displayName;
   if (!home || !away || !header?.date) return {
     status: "unavailable", message: "Không xác định được hai đội để đối chiếu với nguồn video chính thức.",
+  };
+
+  if (!isScorebatFeedRelevant(header.date, now)) return {
+    status: "unavailable",
+    message: "Nguồn video trực tiếp chỉ được kiểm tra gần giờ bóng lăn và trong thời gian phát lại gần đây. Hãy xem lịch và diễn biến trận tại SPORTS247.",
   };
 
   const response = await fetch(

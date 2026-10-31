@@ -26,6 +26,7 @@
     "smoke:local": "node scripts/smoke-http.mjs",
     "qa:browser": "node scripts/qa-browser.mjs",
     "audit:logos": "node scripts/audit-league-logos.mjs",
+    "audit:data": "node scripts/audit-data-coverage.mjs",
     "check": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {

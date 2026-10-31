@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getMatchWatch, isScorebatPlaybackLicensed, matchScorebatVideo, normalizeTeam, scorebatEmbedUrl } from '../src/lib/football/watch.ts';
+import { getMatchWatch, isScorebatFeedRelevant, isScorebatPlaybackLicensed, matchScorebatVideo, normalizeTeam, scorebatEmbedUrl } from '../src/lib/football/watch.ts';
 
 const sample = [{
   date: '2026-10-31T12:30:00Z',
@@ -115,7 +115,7 @@ test('server-only ScoreBat API token is never returned inside an embed URL', asy
     ];
     for (const scenario of forbidden) {
       clip = scenario;
-      const result = await getMatchWatch('eng.1', '401879248', 'VN');
+      const result = await getMatchWatch('eng.1', '401879248', 'VN', Date.parse(sample[0].date));
       assert.equal(result.status, 'unavailable', `Expected denied embed: ${scenario.embed}`);
       assert.ok(!JSON.stringify(result).includes('very-secret-api-token'));
     }
@@ -146,9 +146,49 @@ test('finished match video is clearly marked as replay, not live', async () => {
       : { response: sample },
   });
   try {
-    const result = await getMatchWatch('eng.1', '401879248', 'VN');
+    const result = await getMatchWatch('eng.1', '401879248', 'VN', Date.parse(sample[0].date));
     assert.equal(result.status, 'ready');
     assert.equal(result.broadcastType, 'replay');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) delete process.env.SCOREBAT_API_TOKEN;
+    else process.env.SCOREBAT_API_TOKEN = originalToken;
+    if (originalMarkets === undefined) delete process.env.SCOREBAT_LICENSED_MARKETS;
+    else process.env.SCOREBAT_LICENSED_MARKETS = originalMarkets;
+  }
+});
+
+test('live-feed eligibility prevents paid calls too early or for old events', async () => {
+  const kickoff = Date.parse(sample[0].date);
+  assert.equal(isScorebatFeedRelevant(sample[0].date, kickoff - 31 * 60_000), false);
+  assert.equal(isScorebatFeedRelevant(sample[0].date, kickoff - 5 * 60_000), true);
+  assert.equal(isScorebatFeedRelevant(sample[0].date, kickoff + 71 * 60 * 60_000), true);
+  assert.equal(isScorebatFeedRelevant(sample[0].date, kickoff + 73 * 60 * 60_000), false);
+  assert.equal(isScorebatFeedRelevant('invalid', kickoff), false);
+
+  const originalToken = process.env.SCOREBAT_API_TOKEN;
+  const originalMarkets = process.env.SCOREBAT_LICENSED_MARKETS;
+  const originalFetch = globalThis.fetch;
+  process.env.SCOREBAT_API_TOKEN = 'test-api-token';
+  process.env.SCOREBAT_LICENSED_MARKETS = 'eng.1:VN';
+  const requests = [];
+  globalThis.fetch = async (url) => {
+    requests.push(String(url));
+    if (String(url).includes('scorebat.com')) throw new Error('paid feed must not be contacted');
+    return { ok: true, json: async () => ({ header: { competitions: [{
+      date: sample[0].date, competitors: [
+        { homeAway: 'home', team: { displayName: 'Chelsea' } },
+        { homeAway: 'away', team: { displayName: 'Manchester United' } },
+      ],
+    }] } }) };
+  };
+  try {
+    for (const now of [kickoff - 60 * 60_000, kickoff + 10 * 24 * 60 * 60_000]) {
+      const result = await getMatchWatch('eng.1', '401879248', 'VN', now);
+      assert.equal(result.status, 'unavailable');
+    }
+    assert.equal(requests.length, 2);
+    assert.ok(requests.every((url) => url.includes('site.api.espn.com')));
   } finally {
     globalThis.fetch = originalFetch;
     if (originalToken === undefined) delete process.env.SCOREBAT_API_TOKEN;

@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { LEAGUES } from '../src/lib/football/leagues.ts';
 
 const base = process.env.SPORTS247_BASE_URL ?? 'http://127.0.0.1:3199';
 const chrome = process.env.CHROME_PATH ?? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
@@ -120,7 +121,7 @@ try {
     await evaluate(`document.querySelectorAll('.league-badge img').forEach(img => { img.loading = 'eager'; })`);
     await waitFor(() => evaluate(`(() => {
       const logos = [...document.querySelectorAll('.league-badge')];
-      return logos.length >= 17 && logos.every(el => {
+      return logos.length >= ${LEAGUES.length} && logos.every(el => {
         const img = el.querySelector('img');
         return (img && img.complete && img.naturalWidth > 0) || el.querySelector('.league-badge-fallback');
       });
@@ -128,8 +129,8 @@ try {
     const before = await inspect(viewport.name);
     console.log(`${viewport.name} browser diagnostics: ${JSON.stringify(before)}`);
     assert.ok(before.hasSpotlight, `${viewport.name}: no spotlight`);
-    assert.ok(before.leagueBadges >= 17, `${viewport.name}: fewer than 17 competition badges`);
-    assert.equal(before.competitionOptions, 17, `${viewport.name}: missing supported competitions`);
+    assert.ok(before.leagueBadges >= LEAGUES.length, `${viewport.name}: fewer than ${LEAGUES.length} competition badges`);
+    assert.equal(before.competitionOptions, LEAGUES.length, `${viewport.name}: missing supported competitions`);
     assert.equal(before.brokenLogoImages, 0, `${viewport.name}: failed logo images`);
     assert.equal(before.logoFallbacks, 0, `${viewport.name}: logo unexpectedly missing`);
     assert.equal(before.loadedLogoImages, before.visibleLogoImages, `${viewport.name}: not all logos loaded`);
@@ -206,13 +207,13 @@ try {
   await evaluate(`document.querySelectorAll('.league-badge img').forEach(img => { img.loading = 'eager'; })`);
   await waitFor(() => evaluate(`(() => {
     const badges = [...document.querySelectorAll('.league-badge')];
-    return badges.length >= 17 && badges.every(el => {
+    return badges.length >= ${LEAGUES.length} && badges.every(el => {
       const fallback = el.querySelector('.league-badge-fallback');
       return fallback && fallback.textContent.trim().length > 0;
     });
   })()`), 45000);
   const blocked = await inspect('mobile-cdn-blocked');
-  assert.equal(blocked.competitionOptions, 17, 'Blocked CDN: competition options missing');
+  assert.equal(blocked.competitionOptions, LEAGUES.length, 'Blocked CDN: competition options missing');
   assert.equal(blocked.logoFallbacks, blocked.leagueBadges, 'Blocked CDN: not every logo fell back');
   assert.equal(blocked.brokenLogoImages, 0, 'Blocked CDN: broken image remains');
   await capture('mobile-cdn-blocked.png');

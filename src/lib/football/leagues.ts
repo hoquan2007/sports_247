@@ -18,6 +18,7 @@ export const LEAGUES: League[] = [
   { id: "fra.1", name: "Ligue 1", country: "Pháp", short: "FRA", logo: espnLogo(9) },
   { id: "uefa.champions", name: "Champions League", country: "Châu Âu", short: "UCL", logo: espnLogo(2) },
   { id: "uefa.europa", name: "Europa League", country: "Châu Âu", short: "UEL", logo: espnLogo(2310) },
+  { id: "uefa.nations", name: "UEFA Nations League", country: "Châu Âu", short: "UNL", logo: espnLogo(2395) },
   { id: "eng.2", name: "Championship", country: "Anh", short: "ECH", logo: espnLogo(24) },
   { id: "usa.1", name: "MLS", country: "Mỹ", short: "MLS", logo: espnLogo(19) },
   { id: "eng.fa", name: "FA Cup", country: "Anh", short: "FAC", logo: espnLogo(40) },
