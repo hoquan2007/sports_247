@@ -271,7 +271,7 @@ function MatchDialog({ match, onClose }: { match: FootballMatch; onClose: () => 
           <div className="watch-frame"><iframe src={watch.embedUrl} title={`${watch.title} — ${match.home.name} vs ${match.away.name}`}
             allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowFullScreen
             referrerPolicy="strict-origin-when-cross-origin" loading="lazy" /></div>
-          <p className="watch-note">{watch.broadcastType === "live" ? "Trận đang diễn ra — nguồn phát từ ScoreBat." :
+          <p className="watch-note">{watch.broadcastType === "live" ? `Trận đang diễn ra — nguồn phát từ ${watch.provider}.` :
             watch.broadcastType === "replay" ? "Trận đã kết thúc — đây có thể là video phát lại." :
               watch.broadcastType === "upcoming" ? "Trận chưa bắt đầu — video có thể là tín hiệu chờ." :
                 "Chưa xác minh được trạng thái trận theo dữ liệu ESPN."} Luồng có thể giới hạn theo khu vực hoặc yêu cầu quyền xem.</p>

@@ -1,7 +1,8 @@
-/** Optional official-video adapter. Never expose the upstream API token to browsers. */
+/** Optional official-video adapters. Never expose an upstream API token to browsers. */
+import { findAuthorizedYouTubeStream } from "./official-youtube.ts";
 
 export type WatchResult =
-  | { status: "ready"; provider: "ScoreBat"; embedUrl: string; title: string; broadcastType: "live" | "replay" | "upcoming" | "unknown" }
+  | { status: "ready"; provider: "ScoreBat" | "YouTube"; embedUrl: string; title: string; broadcastType: "live" | "replay" | "upcoming" | "unknown" }
   | { status: "unavailable" | "unconfigured" | "restricted"; message: string };
 
 /** Playback permission must be explicitly configured for each league and country. */
@@ -73,13 +74,13 @@ export function matchScorebatVideo(entries: VideoMatch[], home: string, away: st
   return null;
 }
 
-/** The live feed is useful around kickoff, not for fixtures months away.
- * Skip paid calls until shortly before kickoff and after the recent replay window.
+/** The provider publishes streams about five minutes before kickoff.
+ * Skip paid calls before that window and after the recent replay window.
  */
 export function isScorebatFeedRelevant(kickoff: string, now = Date.now()): boolean {
   const matchTime = Date.parse(kickoff);
   return Number.isFinite(matchTime) && Number.isFinite(now) &&
-    now >= matchTime - 30 * 60_000 && now <= matchTime + 72 * 60 * 60_000;
+    now >= matchTime - 5 * 60_000 && now <= matchTime + 72 * 60 * 60_000;
 }
 
 interface EspnWatchHeader {
@@ -94,6 +95,13 @@ interface EspnWatchHeader {
 
 export async function getMatchWatch(league: string, event: string, viewerCountry: string | null = null,
   now = Date.now()): Promise<WatchResult> {
+  // A curated, explicitly licensed YouTube stream can work without a paid ScoreBat token.
+  // The event ID, viewing country, broadcast window and rights reference are required.
+  const officialYouTube = findAuthorizedYouTubeStream(
+    process.env.OFFICIAL_YOUTUBE_STREAMS, league, event, viewerCountry, now,
+  );
+  if (officialYouTube) return { status: "ready", ...officialYouTube };
+
   const token = process.env.SCOREBAT_API_TOKEN?.trim();
   if (!token) return {
     status: "unconfigured",
@@ -127,7 +135,9 @@ export async function getMatchWatch(league: string, event: string, viewerCountry
 
   const response = await fetch(
     `https://www.scorebat.com/video-api/v3/live-streams/?token=${encodeURIComponent(token)}`,
-    { next: { revalidate: 60 }, signal: AbortSignal.timeout(9500), headers: { Accept: "application/json" } },
+    // Shared feed across fixtures. Cache revalidation reduces paid calls; this is
+    // not a global billing cap across serverless regions or cold deployments.
+    { cache: "force-cache", next: { revalidate: 300 }, signal: AbortSignal.timeout(9500), headers: { Accept: "application/json" } },
   );
   if (!response.ok) throw new Error(`ScoreBat HTTP ${response.status}`);
   const payload = (await response.json()) as { response?: VideoMatch[] };

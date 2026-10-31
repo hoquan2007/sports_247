@@ -161,6 +161,7 @@ test('finished match video is clearly marked as replay, not live', async () => {
 test('live-feed eligibility prevents paid calls too early or for old events', async () => {
   const kickoff = Date.parse(sample[0].date);
   assert.equal(isScorebatFeedRelevant(sample[0].date, kickoff - 31 * 60_000), false);
+  assert.equal(isScorebatFeedRelevant(sample[0].date, kickoff - 6 * 60_000), false);
   assert.equal(isScorebatFeedRelevant(sample[0].date, kickoff - 5 * 60_000), true);
   assert.equal(isScorebatFeedRelevant(sample[0].date, kickoff + 71 * 60 * 60_000), true);
   assert.equal(isScorebatFeedRelevant(sample[0].date, kickoff + 73 * 60 * 60_000), false);

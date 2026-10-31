@@ -72,7 +72,7 @@ Nguồn đang khảo sát cho V.League: [TheSportsDB giải 4803 mùa 2026–27]
 
 SPORTS247 đã tích hợp tùy chọn [ScoreBat Video API](https://www.scorebat.com/video-api/docs/), endpoint `live-streams`, qua server-side `GET /api/watch`. API lấy mã trận ESPN đã xác minh, đối chiếu **cả hai đội và giờ thi đấu** trước khi trả về URL nhúng `https://www.scorebat.com/embed/v/...`. Chỉ URL HTTPS từ miền và đường dẫn cho phép được chấp nhận; không trả HTML nguồn chưa kiểm tra. Token API chỉ nằm trong môi trường server.
 
-Để giảm request tính phí, máy chủ chỉ truy vấn feed live khi trận còn trong khoảng **30 phút trước kickoff đến 72 giờ sau kickoff**. Ngoài khoảng này, API trả trạng thái `unavailable` và hướng dẫn xem lịch/diễn biến. Đây là giới hạn tối ưu cho nhu cầu live và phát lại gần đây của SPORTS247; nếu đối tác hỗ trợ phát lại lâu hơn, cần xem xét điều chỉnh theo hợp đồng.
+Để giảm request tính phí, máy chủ chỉ truy vấn feed live khi trận còn trong khoảng **5 phút trước kickoff đến 72 giờ sau kickoff** (tài liệu ScoreBat ghi live stream thường xuất hiện ~5 phút trước giờ bắt đầu), và cache feed server-side tối đa **300 giây**. Ngoài khoảng này, API trả trạng thái `unavailable` và hướng dẫn xem lịch/diễn biến. Cache giảm truy vấn lặp nhưng **không phải hạn mức toàn cục** giữa các vùng Vercel; cần đo credits và áp hạn mức qua cơ sở dữ liệu dùng chung khi có gói trả phí.
 
 Để bật tính năng khi có gói ScoreBat hỗ trợ live **và đã được nhà cung cấp xác nhận phạm vi sử dụng**, đặt các biến **chỉ phía server** trong `.env.local` hoặc trên hosting (không commit):
 
@@ -82,6 +82,14 @@ SCOREBAT_LICENSED_MARKETS=eng.1:VN,esp.1:VN
 ```
 
 Giá trị `eng.1:VN,esp.1:VN` **chỉ minh họa định dạng**, không khẳng định SPORTS247 đã có quyền phát các giải này tại Việt Nam. Mỗi phần tử là một **cặp giải:quốc gia** (ISO 3166-1) được cấp quyền riêng, tránh vô tình cho phép một giải ở quốc gia khác. `/api/watch` chỉ đọc vị trí IP từ `x-vercel-ip-country` khi chạy trên Vercel; host không có địa chỉ quốc gia tin cậy, hoặc cặp giải/quốc gia chưa được khai báo, sẽ trả `restricted` mà không gọi API trả phí. [Tài liệu Vercel GeoIP](https://vercel.com/docs/headers/request-headers) xác nhận header này có ở deployment; localhost không có header. Cần bật hệ thống biến môi trường Vercel (`VERCEL=1`), thử thực tế khi triển khai và xác minh với nhà cung cấp rằng biện pháp hạn chế theo IP đáp ứng điều khoản sử dụng.
+
+Ngoài ScoreBat, `GET /api/watch` có adapter **YouTube livestream được chọn thủ công theo từng trận có bản quyền**. Đặt `OFFICIAL_YOUTUBE_STREAMS` trên server là mảng JSON với `league` (ESPN), `event` (ID ESPN), `videoId` (đúng 11 ký tự), `countries` (các mã ISO cho phép), `validFrom` và `validUntil` (ISO UTC, tối đa 8 giờ), `rightsReference` (mã hợp đồng/ủy quyền để kiểm toán) và `title` tùy chọn. Ví dụ **chỉ mô tả định dạng, không chứa video có thật**:
+
+```dotenv
+OFFICIAL_YOUTUBE_STREAMS=[{"league":"eng.1","event":"401879248","videoId":"AbCdEFg1234","countries":["VN"],"validFrom":"2026-10-31T12:00:00Z","validUntil":"2026-10-31T15:00:00Z","rightsReference":"agreement-2026-123"}]
+```
+
+**Không dùng ví dụ này trên production.** Người vận hành chỉ khai báo ID video của kênh chính thức khi có xác nhận quyền nhúng trên SPORTS247 theo lãnh thổ và thời gian; video không chính thức hoặc bị hạn chế nhúng không được tự động tìm kiếm/phát. Server yêu cầu khớp toàn bộ ID trận, mã giải, nước, khoảng giờ và bằng chứng quyền; khi hợp lệ trả iframe `youtube-nocookie.com`, không tiết lộ mã hợp đồng. Có thể kiểm tra parser và thời hạn bằng `npm test` mà không cần token; xem thực tế cần deployment có GeoIP được kiểm chứng.
 
 Gói miễn phí ScoreBat chỉ có highlights giới hạn và **không** bao gồm endpoint live; theo bảng giá ngày 31/10/2026 gói Starter có live là **$69/tháng** với 5.000 credits, API call tốn 5 credits và mỗi lượt xem tiêu tốn credit. Khi chưa có token, tab hiển thị giải thích thay vì giả lập phát video. Token một mình sẽ không bật phát; cả quyền giải đấu, quốc gia và luồng trận khớp mới có thể cho phép nhúng.
 
@@ -112,6 +120,7 @@ src/
     espn.ts                  Adapter ESPN + OpenLigaDB fallback
     match-details.ts         ESPN soccer summary adapter + normalized models
     watch.ts                  Adapter ScoreBat và kiểm tra an toàn embed
+    official-youtube.ts       Cho phép video YouTube đã cấp quyền theo trận/quốc gia/thời hạn
     standings.ts              Chuẩn hóa bảng xếp hạng ESPN
     leagues.ts               Danh sách giải, xử lý ngày và múi giờ
     types.ts                 Contract API frontend/backend
