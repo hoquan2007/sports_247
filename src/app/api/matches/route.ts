@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
     const feed = await getMatchFeed(date);
     if (feed.partial) console.warn(JSON.stringify({
       event: "sports247_matches_partial", date, missingSources: feed.errors.length,
+      failedLeagues: feed.failedLeagues ?? [],
       durationMs: Math.round(performance.now() - started), at: new Date().toISOString(),
     }));
     return NextResponse.json(feed, {

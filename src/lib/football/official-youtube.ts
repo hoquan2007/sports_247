@@ -53,7 +53,7 @@ export function parseLicensedYouTubeStreams(value: string | undefined): Licensed
   }
 }
 
-/** An exact ESPN event ID, verified viewer market and active broadcast window are required. */
+/** Match the event ID within its provider's league, viewer market and live window. */
 export function findAuthorizedYouTubeStream(
   config: string | undefined,
   league: string,

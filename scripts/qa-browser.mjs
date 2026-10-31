@@ -6,6 +6,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { LEAGUES } from '../src/lib/football/leagues.ts';
+import { VIETNAM_LEAGUES } from '../src/lib/football/vietnam-leagues.ts';
+
+const DISPLAY_LEAGUES = [...LEAGUES, ...VIETNAM_LEAGUES];
 
 const base = process.env.SPORTS247_BASE_URL ?? 'http://127.0.0.1:3199';
 const chrome = process.env.CHROME_PATH ?? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
@@ -54,12 +57,17 @@ async function inspect(viewportName) {
     const logos = [...document.querySelectorAll('.league-badge')];
     const images = logos.map(el => el.querySelector('img')).filter(Boolean);
     const visible = images.filter(el => el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().height > 0);
+    const vietnam = logos.filter(el => el.dataset.leagueId?.startsWith('vie.'));
+    const espn = logos.filter(el => !el.dataset.leagueId?.startsWith('vie.'));
     return {
       viewport: '${viewportName}', title: document.title,
       leagueBadges: logos.length, visibleLogoImages: visible.length,
       loadedLogoImages: visible.filter(el => el.complete && el.naturalWidth > 0).length,
       brokenLogoImages: visible.filter(el => el.complete && el.naturalWidth === 0).length,
       logoFallbacks: logos.filter(el => el.querySelector('.league-badge-fallback')).length,
+      vietnamBadges: vietnam.length,
+      vietnamFallbacks: vietnam.filter(el => el.querySelector('.league-badge-fallback')).length,
+      espnFallbacks: espn.filter(el => el.querySelector('.league-badge-fallback')).length,
       competitionOptions: document.querySelectorAll('.competition-item .league-badge').length,
       introVisible: !!document.querySelector('.matchday-intro') && getComputedStyle(document.querySelector('.matchday-intro')).display !== 'none',
       viewportWidth: window.innerWidth, pageWidth: document.documentElement.scrollWidth,
@@ -110,6 +118,11 @@ try {
   await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
   const screenshots = [];
   const checks = [];
+  const coverageResponse = await fetch(new URL('/api/matches', base), { cache: 'no-store' });
+  assert.equal(coverageResponse.status, 200, 'Could not verify pending competition data');
+  const coverage = await coverageResponse.json();
+  const pendingVietnam = VIETNAM_LEAGUES.filter((league) =>
+    (coverage.pendingLeagues ?? []).includes(league.id));
   for (const viewport of [
     { name: 'desktop', width: 1440, height: 900, mobile: false },
     { name: 'mobile', width: 390, height: 844, mobile: true },
@@ -121,7 +134,7 @@ try {
     await evaluate(`document.querySelectorAll('.league-badge img').forEach(img => { img.loading = 'eager'; })`);
     await waitFor(() => evaluate(`(() => {
       const logos = [...document.querySelectorAll('.league-badge')];
-      return logos.length >= ${LEAGUES.length} && logos.every(el => {
+      return logos.length >= ${DISPLAY_LEAGUES.length} && logos.every(el => {
         const img = el.querySelector('img');
         return (img && img.complete && img.naturalWidth > 0) || el.querySelector('.league-badge-fallback');
       });
@@ -129,10 +142,11 @@ try {
     const before = await inspect(viewport.name);
     console.log(`${viewport.name} browser diagnostics: ${JSON.stringify(before)}`);
     assert.ok(before.hasSpotlight, `${viewport.name}: no spotlight`);
-    assert.ok(before.leagueBadges >= LEAGUES.length, `${viewport.name}: fewer than ${LEAGUES.length} competition badges`);
-    assert.equal(before.competitionOptions, LEAGUES.length, `${viewport.name}: missing supported competitions`);
+    assert.ok(before.leagueBadges >= DISPLAY_LEAGUES.length, `${viewport.name}: fewer than ${DISPLAY_LEAGUES.length} competition badges`);
+    assert.equal(before.competitionOptions, DISPLAY_LEAGUES.length, `${viewport.name}: missing listed competitions`);
     assert.equal(before.brokenLogoImages, 0, `${viewport.name}: failed logo images`);
-    assert.equal(before.logoFallbacks, 0, `${viewport.name}: logo unexpectedly missing`);
+    assert.equal(before.espnFallbacks, 0, `${viewport.name}: ESPN competition logo unexpectedly missing`);
+    assert.equal(before.vietnamFallbacks, 0, `${viewport.name}: VPF competition logo unexpectedly missing`);
     assert.equal(before.loadedLogoImages, before.visibleLogoImages, `${viewport.name}: not all logos loaded`);
     if (before.matchRows > 0) {
       const placements = await evaluate(`(() => ({
@@ -147,6 +161,17 @@ try {
     }
     assert.ok(before.pageWidth <= before.viewportWidth + 2, `${viewport.name}: horizontal overflow ${before.pageWidth}px`);
     assert.equal(before.introVisible, false, `${viewport.name}: intro overlay did not disappear`);
+    const pendingNotice = await evaluate('(() => { const el = document.querySelector(".results-area .source-notice[role=status]"); return { text: el?.textContent?.trim() ?? "", official: [...(el?.querySelectorAll("a") ?? [])].some(a => a.href.startsWith("https://vpf.vn/")) }; })()');
+    assert.equal(Boolean(pendingNotice.text), pendingVietnam.length > 0,
+      `${viewport.name}: all-competitions V.League data notice differs from API`);
+    if (pendingVietnam.length) {
+      assert.equal(pendingNotice.official, true, `${viewport.name}: no official fixture link`);
+      for (const division of pendingVietnam) {
+        assert.ok(pendingNotice.text.includes(division.name),
+          `${viewport.name}: missing data notice for ${division.name}`);
+      }
+    }
+    checks.push({ viewport: viewport.name, pendingVietnam: pendingVietnam.map((item) => item.id), officialLink: pendingNotice.official });
     await capture(`${viewport.name}.png`);
     screenshots.push(`${viewport.name}.png`);
     checks.push(before);
@@ -188,6 +213,31 @@ try {
     await waitFor(() => evaluate(`document.querySelector('.standings-expand')?.getAttribute('aria-expanded') === 'false'`), 10000);
     const focusRestored = await evaluate(`document.activeElement === document.querySelector('.standings-expand')`);
     assert.equal(focusRestored, true, `${viewport.name}: closing standings did not restore keyboard focus`);
+    // The expanded standings click proves React hydration is ready. Only now
+    // exercise client state changes in the competition filter.
+    for (const division of pendingVietnam) {
+      await evaluate('([...document.querySelectorAll(".competition-item")].find(el => el.querySelector(".league-badge")?.dataset.leagueId === ' + JSON.stringify(division.id) + '))?.click()');
+      try {
+        await waitFor(() => evaluate('document.querySelector(".competition-item.active .league-badge")?.dataset.leagueId === ' + JSON.stringify(division.id)), 8000);
+      } catch {
+        throw new Error(`${viewport.name}: selecting ${division.name} did not update active competition`);
+      }
+      const individualNotice = await evaluate('([...document.querySelectorAll(".results-area .source-notice")].find(el => [...el.querySelectorAll("a")].some(a => a.href.startsWith("https://vpf.vn/")))?.textContent ?? "")');
+      assert.ok(individualNotice.includes(division.name),
+        `${viewport.name}: missing selected-competition notice for ${division.name}`);
+    }
+    if (pendingVietnam.length) {
+      await evaluate('document.querySelector(".brand-wordmark")?.click()');
+      try {
+        await waitFor(() => evaluate('(() => { const active = [...document.querySelectorAll(".competition-item.active")]; return active.length === 1 && active[0].textContent.includes("Toàn bộ giải đấu") && !active[0].querySelector(".league-badge"); })()'), 8000);
+      } catch {
+        throw new Error(`${viewport.name}: home control did not reset competition filter`);
+      }
+    }
+    await evaluate(`document.querySelector('#competitions .competition-item:last-of-type')?.scrollIntoView({ block: 'center' })`);
+    await pause(150);
+    await capture(`${viewport.name}-leagues.png`);
+    screenshots.push(`${viewport.name}-leagues.png`);
   }
 
   await evaluate(`document.querySelector('.spotlight-open, .match-open')?.click()`);
@@ -207,18 +257,51 @@ try {
   await evaluate(`document.querySelectorAll('.league-badge img').forEach(img => { img.loading = 'eager'; })`);
   await waitFor(() => evaluate(`(() => {
     const badges = [...document.querySelectorAll('.league-badge')];
-    return badges.length >= ${LEAGUES.length} && badges.every(el => {
+    return badges.length >= ${DISPLAY_LEAGUES.length} && badges.every(el => {
+      const isVietnam = el.dataset.leagueId?.startsWith('vie.');
       const fallback = el.querySelector('.league-badge-fallback');
+      if (isVietnam) {
+        const img = el.querySelector('img');
+        return !!fallback || (img?.complete && img.naturalWidth > 0);
+      }
       return fallback && fallback.textContent.trim().length > 0;
     });
   })()`), 45000);
   const blocked = await inspect('mobile-cdn-blocked');
-  assert.equal(blocked.competitionOptions, LEAGUES.length, 'Blocked CDN: competition options missing');
-  assert.equal(blocked.logoFallbacks, blocked.leagueBadges, 'Blocked CDN: not every logo fell back');
+  assert.equal(blocked.competitionOptions, DISPLAY_LEAGUES.length, 'Blocked CDN: competition options missing');
+  assert.equal(blocked.espnFallbacks, blocked.leagueBadges - blocked.vietnamBadges, 'Blocked CDN: ESPN logos not all replaced by readable fallback');
+  assert.equal(blocked.vietnamFallbacks, 0, 'Blocked ESPN: VPF competition badges should still load');
   assert.equal(blocked.brokenLogoImages, 0, 'Blocked CDN: broken image remains');
+  assert.equal(blocked.loadedLogoImages, blocked.visibleLogoImages, 'Blocked ESPN: independent VPF images not all loaded');
   await capture('mobile-cdn-blocked.png');
   screenshots.push('mobile-cdn-blocked.png');
   checks.push(blocked);
+  // The Vietnamese badges have an independent image host. Verify their fallback
+  // with ESPN CDN available so a VPF outage cannot hide the competition names.
+  await send('Network.setBlockedURLs', { urls: ['*vpf.vn*'] });
+  await send('Page.navigate', { url: base });
+  await waitFor(() => evaluate(`document.readyState === 'complete' && !!document.querySelector('.app-shell')`), 30000);
+  await evaluate(`document.querySelectorAll('.league-badge img').forEach(img => { img.loading = 'eager'; })`);
+  await waitFor(() => evaluate(`(() => {
+    const badges = [...document.querySelectorAll('.league-badge')];
+    const vietnam = badges.filter(el => el.dataset.leagueId?.startsWith('vie.'));
+    return vietnam.length === ${VIETNAM_LEAGUES.length} && badges.every(el => {
+      if (el.dataset.leagueId?.startsWith('vie.')) {
+        return !!el.querySelector('.league-badge-fallback')?.textContent.trim();
+      }
+      const img = el.querySelector('img');
+      return img?.complete && img.naturalWidth > 0;
+    });
+  })()`), 45000);
+  const vpfBlocked = await inspect('mobile-vpf-blocked');
+  assert.equal(vpfBlocked.competitionOptions, DISPLAY_LEAGUES.length, 'Blocked VPF: competition options missing');
+  assert.equal(vpfBlocked.vietnamFallbacks, vpfBlocked.vietnamBadges, 'Blocked VPF: Vietnamese badges need readable text');
+  assert.equal(vpfBlocked.espnFallbacks, 0, 'Blocked VPF: unrelated ESPN badges should still load');
+  assert.equal(vpfBlocked.brokenLogoImages, 0, 'Blocked VPF: broken image remains');
+  assert.equal(vpfBlocked.loadedLogoImages, vpfBlocked.visibleLogoImages, 'Blocked VPF: independent ESPN images not all loaded');
+  await capture('mobile-vpf-blocked.png');
+  screenshots.push('mobile-vpf-blocked.png');
+  checks.push(vpfBlocked);
   console.log(JSON.stringify({ status: 'PASS', checks, interactive: 'modal/watch tab/Escape', screenshots }, null, 2));
 } catch (error) {
   console.error('Browser QA FAILED:', error.message);

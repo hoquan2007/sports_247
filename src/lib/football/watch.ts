@@ -1,5 +1,8 @@
 /** Optional official-video adapters. Never expose an upstream API token to browsers. */
 import { findAuthorizedYouTubeStream } from "./official-youtube.ts";
+import { isVietnamLeague } from "./vietnam-leagues.ts";
+import { reserveScorebatCredits } from "./scorebat-budget.ts";
+import { normalizeEspnStatus } from "./espn-status.ts";
 
 export type WatchResult =
   | { status: "ready"; provider: "ScoreBat" | "YouTube"; embedUrl: string; title: string; broadcastType: "live" | "replay" | "upcoming" | "unknown" }
@@ -19,17 +22,18 @@ export function isScorebatPlaybackLicensed(
   });
 }
 
-interface VideoItem { title?: string; embed?: string }
+interface VideoItem { title?: unknown; embed?: unknown }
 interface VideoMatch {
-  date?: string;
-  homeTeam?: { name?: string };
-  awayTeam?: { name?: string };
-  videos?: VideoItem[];
+  date?: unknown;
+  homeTeam?: { name?: unknown };
+  awayTeam?: { name?: unknown };
+  videos?: unknown;
 }
 
 export function normalizeTeam(name: string): string {
   const normalized = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
-    .replace(/\b(fc|cf|afc|sc)\b/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+    // "SC" distinguishes clubs such as Barcelona SC from FC Barcelona.
+    .replace(/\b(fc|cf|afc)\b/g, "").replace(/[^a-z0-9]+/g, " ").trim();
   // Narrow, explicit equivalents used by football feeds. Keep ambiguous names
   // distinct (e.g. "Inter" may mean Milan or Miami) to avoid wrong broadcasts.
   const aliases: Record<string, string> = {
@@ -45,6 +49,7 @@ export function normalizeTeam(name: string): string {
 
 /** Only permit ScoreBat's own public embed URLs: never render upstream HTML as-is. */
 export function scorebatEmbedUrl(embed: string): string | null {
+  if (typeof embed !== "string" || embed.length > 10_000) return null;
   const src = embed.match(/<iframe\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/i)?.[1];
   if (!src) return null;
   try {
@@ -56,19 +61,28 @@ export function scorebatEmbedUrl(embed: string): string | null {
 }
 
 /** Require both opponents and kickoff proximity; a wrong live video is worse than no video. */
-export function matchScorebatVideo(entries: VideoMatch[], home: string, away: string, kickoff: string): {
+export function matchScorebatVideo(entries: unknown, home: string, away: string, kickoff: string): {
   embedUrl: string; title: string;
 } | null {
   const kickoffMs = Date.parse(kickoff);
-  if (!Number.isFinite(kickoffMs)) return null;
-  for (const entry of entries) {
-    const eventMs = Date.parse(entry.date ?? "");
+  if (!Number.isFinite(kickoffMs) || !Array.isArray(entries)) return null;
+  for (const item of entries) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const entry = item as VideoMatch;
+    const eventMs = Date.parse(typeof entry.date === "string" ? entry.date : "");
     if (!Number.isFinite(eventMs) || Math.abs(eventMs - kickoffMs) > 90 * 60_000) continue;
-    if (normalizeTeam(entry.homeTeam?.name ?? "") !== normalizeTeam(home) ||
-        normalizeTeam(entry.awayTeam?.name ?? "") !== normalizeTeam(away)) continue;
-    for (const clip of entry.videos ?? []) {
-      const embedUrl = scorebatEmbedUrl(clip.embed ?? "");
-      if (embedUrl) return { embedUrl, title: clip.title ?? "Phát trực tiếp chính thức" };
+    const homeName = entry.homeTeam?.name;
+    const awayName = entry.awayTeam?.name;
+    if (typeof homeName !== "string" || typeof awayName !== "string" ||
+        normalizeTeam(homeName) !== normalizeTeam(home) ||
+        normalizeTeam(awayName) !== normalizeTeam(away) || !Array.isArray(entry.videos)) continue;
+    for (const clip of entry.videos) {
+      if (!clip || typeof clip !== "object" || Array.isArray(clip)) continue;
+      const item = clip as VideoItem;
+      if (typeof item.embed !== "string") continue;
+      const embedUrl = scorebatEmbedUrl(item.embed);
+      if (embedUrl) return { embedUrl,
+        title: typeof item.title === "string" && item.title.trim() ? item.title : "Phát trực tiếp chính thức" };
     }
   }
   return null;
@@ -84,12 +98,13 @@ export function isScorebatFeedRelevant(kickoff: string, now = Date.now()): boole
 }
 
 interface EspnWatchHeader {
-  header?: { competitions?: Array<{
+  header?: { id?: unknown; competitions?: Array<{
+    id?: unknown;
     date?: string;
-    status?: { type?: { state?: string } };
-    competitors?: Array<{ homeAway?: string; team?: { displayName?: string } }>;
+    status?: { displayClock?: string; type?: { name?: string; state?: string; shortDetail?: string } };
+    competitors?: Array<{ homeAway?: string; team?: { id?: unknown; displayName?: string } }>;
   }>;
-    status?: { type?: { state?: string } };
+    status?: { displayClock?: string; type?: { name?: string; state?: string; shortDetail?: string } };
   };
 }
 
@@ -101,6 +116,14 @@ export async function getMatchWatch(league: string, event: string, viewerCountry
     process.env.OFFICIAL_YOUTUBE_STREAMS, league, event, viewerCountry, now,
   );
   if (officialYouTube) return { status: "ready", ...officialYouTube };
+
+  // API-Football fixture IDs are separate from ESPN event IDs. V.League can use
+  // an individually authorized YouTube stream, but must never be looked up as an
+  // ESPN match or charged against a ScoreBat feed by accident.
+  if (isVietnamLeague(league)) return {
+    status: "unavailable",
+    message: "Chưa có nguồn phát chính thức được cấp quyền nhúng cho trận V.League này. Xem kênh phát và lịch từ VPF hoặc thử lại gần giờ thi đấu.",
+  };
 
   const token = process.env.SCOREBAT_API_TOKEN?.trim();
   if (!token) return {
@@ -120,17 +143,53 @@ export async function getMatchWatch(league: string, event: string, viewerCountry
     { next: { revalidate: 90 }, signal: AbortSignal.timeout(9500) },
   );
   if (!espn.ok) throw new Error("ESPN watch lookup failed");
-  const matchHeader = (await espn.json() as EspnWatchHeader).header;
-  const header = matchHeader?.competitions?.[0];
-  const home = header?.competitors?.find((c) => c.homeAway === "home")?.team?.displayName;
-  const away = header?.competitors?.find((c) => c.homeAway === "away")?.team?.displayName;
-  if (!home || !away || !header?.date) return {
+  const summary: unknown = await espn.json();
+  const matchHeader = summary && typeof summary === "object" && !Array.isArray(summary)
+    ? (summary as EspnWatchHeader).header : undefined;
+  // A single event must resolve to exactly one contest. Choosing the first
+  // item in a malformed multi-competition summary could serve another match.
+  const header = Array.isArray(matchHeader?.competitions) && matchHeader.competitions.length === 1
+    ? matchHeader.competitions[0] : undefined;
+  const competitors = Array.isArray(header?.competitors) ? header.competitors : [];
+  // The summary is an external payload. Reject partial or inconsistent fixtures
+  // before using team names to select a paid live broadcast.
+  const homeTeams = competitors.filter((c) => c && c.homeAway === "home");
+  const awayTeams = competitors.filter((c) => c && c.homeAway === "away");
+  const home = homeTeams[0]?.team?.displayName;
+  const away = awayTeams[0]?.team?.displayName;
+  const homeId = homeTeams[0]?.team?.id;
+  const awayId = awayTeams[0]?.team?.id;
+  if (competitors.length !== 2 || homeTeams.length !== 1 || awayTeams.length !== 1 ||
+      typeof home !== "string" || !home.trim() ||
+      typeof away !== "string" || !away.trim() ||
+      home.trim().toLowerCase() === away.trim().toLowerCase() ||
+      (homeId != null && awayId != null && String(homeId).trim() === String(awayId).trim()) ||
+      typeof header?.date !== "string" || !Number.isFinite(Date.parse(header.date)) ||
+      (matchHeader?.id != null && String(matchHeader.id) !== event) ||
+      (header.id != null && String(header.id) !== event)) return {
     status: "unavailable", message: "Không xác định được hai đội để đối chiếu với nguồn video chính thức.",
+  };
+
+  const espnStatus = header.status ?? matchHeader?.status;
+  const matchStatus = normalizeEspnStatus(espnStatus).status;
+  if (matchStatus === "postponed" || matchStatus === "cancelled" || matchStatus === "interrupted") return {
+    status: "unavailable",
+    message: matchStatus === "postponed" ? "Trận đấu đã bị hoãn; chưa có nguồn phát trực tiếp cho lịch cũ."
+      : matchStatus === "cancelled" ? "Trận đấu đã bị hủy; không có nguồn phát trực tiếp."
+        : "Trận đấu đang gián đoạn; nguồn phát sẽ được kiểm tra lại khi trận tiếp tục.",
   };
 
   if (!isScorebatFeedRelevant(header.date, now)) return {
     status: "unavailable",
     message: "Nguồn video trực tiếp chỉ được kiểm tra gần giờ bóng lăn và trong thời gian phát lại gần đây. Hãy xem lịch và diễn biến trận tại SPORTS247.",
+  };
+
+  const feedCredits = await reserveScorebatCredits(5, now);
+  if (feedCredits.status === "exhausted" || feedCredits.status === "unavailable") return {
+    status: "unavailable",
+    message: feedCredits.status === "exhausted"
+      ? "Ngân sách truy vấn nguồn video tháng này đã hết. Bạn vẫn có thể xem tỷ số và diễn biến."
+      : "Chưa thể kiểm tra ngân sách nguồn video. Vui lòng thử lại sau.",
   };
 
   const response = await fetch(
@@ -140,7 +199,7 @@ export async function getMatchWatch(league: string, event: string, viewerCountry
     { cache: "force-cache", next: { revalidate: 300 }, signal: AbortSignal.timeout(9500), headers: { Accept: "application/json" } },
   );
   if (!response.ok) throw new Error(`ScoreBat HTTP ${response.status}`);
-  const payload = (await response.json()) as { response?: VideoMatch[] };
+  const payload = (await response.json()) as { response?: unknown };
   if (!Array.isArray(payload.response)) throw new Error("Invalid ScoreBat response");
 
   const video = matchScorebatVideo(payload.response, home, away, header.date);
@@ -165,8 +224,19 @@ export async function getMatchWatch(league: string, event: string, viewerCountry
       message: "Nguồn video chưa có đường dẫn nhúng an toàn. Vui lòng liên hệ đơn vị cung cấp phát sóng.",
     };
   }
-  const state = header.status?.type?.state ?? matchHeader?.status?.type?.state;
-  const broadcastType = state === "in" ? "live" : state === "post" ? "replay" : state === "pre" ? "upcoming" : "unknown";
+  // Reserve the provider's per-view credit before handing an iframe to the
+  // browser. Actual viewing/billing is external and must be reconciled.
+  if (video) {
+    const viewCredits = await reserveScorebatCredits(1, now);
+    if (viewCredits.status === "exhausted" || viewCredits.status === "unavailable") return {
+      status: "unavailable",
+      message: viewCredits.status === "exhausted"
+        ? "Ngân sách xem video tháng này đã hết. Bạn vẫn có thể theo dõi diễn biến trận."
+        : "Chưa thể kiểm tra ngân sách xem video. Vui lòng thử lại sau.",
+    };
+  }
+  const broadcastType = !espnStatus?.type?.state && !espnStatus?.type?.name ? "unknown"
+    : matchStatus === "live" ? "live" : matchStatus === "finished" ? "replay" : "upcoming";
   return video ? { status: "ready", provider: "ScoreBat", broadcastType, ...video } : {
     status: "unavailable",
     message: "Chưa có luồng phát chính thức được phép nhúng cho trận này. Có thể do bản quyền khu vực hoặc trận chưa bắt đầu.",

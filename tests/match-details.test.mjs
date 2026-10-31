@@ -88,6 +88,12 @@ test('Head-to-head history includes only valid completed meetings, newest first'
       event('future', '2026-12-01T12:00:00Z', '363', '360', '0', '0', 'pre'),
       event('wrong', '2026-02-01T12:00:00Z', '363', '999', '2', '1'),
       event('badscore', '2026-02-02T12:00:00Z', '363', '360', 'x', '1'),
+      { ...event('postponed', '2026-02-03T12:00:00Z', '363', '360', '1', '0'),
+        statusType: { name: 'STATUS_POSTPONED', state: 'post' } },
+      { ...event('cancelled', '2026-02-04T12:00:00Z', '363', '360', '1', '0'),
+        status: { type: { name: 'STATUS_CANCELLED', state: 'post' } } },
+      { ...event('suspended', '2026-02-05T12:00:00Z', '363', '360', '1', '0'),
+        statusType: { name: 'STATUS_SUSPENDED', state: 'in' } },
     ] }],
   });
   assert.deepEqual(detail.headToHead.map(({ id, homeId, homeScore, awayScore }) =>

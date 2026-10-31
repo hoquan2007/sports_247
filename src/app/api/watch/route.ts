@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LEAGUES } from "@/lib/football/leagues";
+import { isVietnamLeague } from "@/lib/football/vietnam-leagues";
 import { getMatchWatch } from "@/lib/football/watch";
 
 export const runtime = "nodejs";
@@ -8,7 +9,8 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   const league = request.nextUrl.searchParams.get("league");
   const event = request.nextUrl.searchParams.get("event");
-  if (!league || !LEAGUES.some((entry) => entry.id === league) || !event || !/^\d{6,12}$/.test(event)) {
+  if (!league || (!LEAGUES.some((entry) => entry.id === league) && !isVietnamLeague(league)) ||
+      !event || !/^\d{6,12}$/.test(event)) {
     return NextResponse.json({ error: "Mã giải hoặc mã trận không hợp lệ." }, { status: 400 });
   }
 

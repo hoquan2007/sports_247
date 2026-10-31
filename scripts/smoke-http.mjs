@@ -35,12 +35,25 @@ try {
   });
   await check('Reject bad date', '/api/matches?date=2026-02-31', 400);
   await check('Reject bad league for video', '/api/watch?league=invalid&event=401879248', 400);
+  await check('Reject bad V.League event', '/api/watch?league=vie.1&event=not-an-id', 400);
+  await check('V.League licensed-video adapter', '/api/watch?league=vie.1&event=1234567', 200, (body) => {
+    assert.ok(['unavailable', 'ready'].includes(body.status));
+    if (body.status === 'ready') {
+      assert.equal(body.provider, 'YouTube');
+      assert.match(body.embedUrl, /^https:\/\/www\.youtube-nocookie\.com\/embed\/[A-Za-z0-9_-]{11}$/);
+    }
+  });
   await check('Reject bad league for standings', '/api/standings?league=invalid', 400);
   await check('Match feed', `/api/matches?date=${date}`, 200, (body) => {
     assert.equal(body.date, date);
     assert.ok(Array.isArray(body.matches));
     assert.equal(typeof body.partial, 'boolean');
     assert.ok(Array.isArray(body.errors));
+    assert.ok(Array.isArray(body.failedLeagues), 'Missing per-league upstream failure status');
+    assert.ok(Array.isArray(body.pendingLeagues), 'Missing Vietnam configuration status');
+    assert.ok(body.pendingLeagues.every((id) => ['vie.1', 'vie.2'].includes(id)),
+      'Only the Vietnam divisions may be pending API configuration');
+    assert.ok(body.failedLeagues.every((id) => typeof id === 'string' && id.length > 0));
   });
   await check('Standings', '/api/standings?league=eng.1', 200, (body) => {
     assert.equal(body.leagueId, 'eng.1');

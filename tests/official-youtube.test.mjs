@@ -65,3 +65,38 @@ test('authorized curated YouTube stream is served without any upstream API call'
     else process.env.OFFICIAL_YOUTUBE_STREAMS = before;
   }
 });
+
+test('licensed V.League YouTube stream is supported without ESPN or paid ScoreBat lookups', async () => {
+  const beforeYouTube = process.env.OFFICIAL_YOUTUBE_STREAMS;
+  const beforeScoreBat = process.env.SCOREBAT_API_TOKEN;
+  const beforeMarkets = process.env.SCOREBAT_LICENSED_MARKETS;
+  const originalFetch = globalThis.fetch;
+  const vietnamConfig = JSON.stringify([{ ...entry, league: 'vie.1', event: '1234567' }]);
+  let calls = 0;
+  process.env.OFFICIAL_YOUTUBE_STREAMS = vietnamConfig;
+  process.env.SCOREBAT_API_TOKEN = 'paid-token-test-only';
+  process.env.SCOREBAT_LICENSED_MARKETS = 'vie.1:VN,eng.1:VN';
+  globalThis.fetch = () => { calls++; throw new Error('V.League must not request ESPN or ScoreBat'); };
+  try {
+    const valid = await getMatchWatch('vie.1', '1234567', 'VN', during);
+    assert.equal(valid.status, 'ready');
+    assert.equal(valid.provider, 'YouTube');
+    assert.equal(valid.embedUrl, 'https://www.youtube-nocookie.com/embed/AbCdEFg1234');
+    for (const [eventId, country, time] of [
+      ['1234568', 'VN', during], ['1234567', 'TH', during],
+      ['1234567', 'VN', Date.parse('2026-10-31T16:00:00Z')],
+    ]) {
+      const denied = await getMatchWatch('vie.1', eventId, country, time);
+      assert.equal(denied.status, 'unavailable');
+    }
+    assert.equal(calls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (beforeYouTube === undefined) delete process.env.OFFICIAL_YOUTUBE_STREAMS;
+    else process.env.OFFICIAL_YOUTUBE_STREAMS = beforeYouTube;
+    if (beforeScoreBat === undefined) delete process.env.SCOREBAT_API_TOKEN;
+    else process.env.SCOREBAT_API_TOKEN = beforeScoreBat;
+    if (beforeMarkets === undefined) delete process.env.SCOREBAT_LICENSED_MARKETS;
+    else process.env.SCOREBAT_LICENSED_MARKETS = beforeMarkets;
+  }
+});

@@ -1,4 +1,5 @@
 /** Normalized, optional detail fields from ESPN's undocumented soccer summary feed. */
+import { normalizeEspnStatus } from "./espn-status.ts";
 export interface DetailStatistic {
   key: string;
   label: string;
@@ -232,7 +233,15 @@ function parseHeadToHead(value: unknown, homeId: string | null, awayId: string |
     const eventHomeId = teamId(home);
     const eventAwayId = teamId(away);
     const allowed = [homeId, awayId];
-    const completed = prop(event, "status") === "post" || nested(event, "statusType", "state") === "post";
+    const eventStatus = prop(event, "status");
+    const statusName = str(nested(event, "statusType", "name"))
+      ?? str(nested(eventStatus, "type", "name")) ?? str(prop(eventStatus, "name"));
+    const statusState = str(nested(event, "statusType", "state"))
+      ?? (typeof eventStatus === "string" ? eventStatus :
+        str(nested(eventStatus, "type", "state")) ?? str(prop(eventStatus, "state")));
+    const completed = normalizeEspnStatus({ type: {
+      name: statusName ?? undefined, state: statusState ?? undefined,
+    } }).status === "finished";
     const homeScoreText = str(prop(home, "score"));
     const awayScoreText = str(prop(away, "score"));
     if (!id || seen.has(id) || !date || !Number.isFinite(Date.parse(date)) || !completed ||

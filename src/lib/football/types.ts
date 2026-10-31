@@ -1,6 +1,6 @@
 import type { FormOutcome } from "./recent-form";
 
-export type MatchStatus = "scheduled" | "live" | "finished";
+export type MatchStatus = "scheduled" | "live" | "finished" | "postponed" | "cancelled" | "interrupted" | "awarded";
 
 export interface FootballTeam {
   id: string;
@@ -26,7 +26,7 @@ export interface FootballMatch {
   venue: string | null;
   broadcasters: string[];
   matchUrl: string | null;
-  source: "ESPN" | "OpenLigaDB";
+  source: "ESPN" | "OpenLigaDB" | "API-Football";
 }
 
 export interface MatchFeed {
@@ -36,4 +36,8 @@ export interface MatchFeed {
   sources: string[];
   partial: boolean;
   errors: string[];
+  /** Competitions without configured data, distinct from a match-free day. */
+  pendingLeagues?: string[];
+  /** Provider errors affecting a configured league, separate from missing credentials. */
+  failedLeagues?: string[];
 }
