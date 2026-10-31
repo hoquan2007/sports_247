@@ -161,6 +161,28 @@ try {
     }
     assert.ok(before.pageWidth <= before.viewportWidth + 2, `${viewport.name}: horizontal overflow ${before.pageWidth}px`);
     assert.equal(before.introVisible, false, `${viewport.name}: intro overlay did not disappear`);
+    const mascot = await evaluate(`(() => {
+      const button = document.querySelector('.mascot-action');
+      const dock = document.querySelector('.mascot-dock');
+      const rect = button?.getBoundingClientRect();
+      return {
+        exists: !!button && !!dock && !!button.querySelector('.mascot-face') && !!button.querySelector('.mascot-arm.left'),
+        withinViewport: !!rect && rect.width > 40 && rect.left >= 0 && rect.right <= innerWidth + 1,
+        reducedMotionStopped: !!dock && getComputedStyle(dock.querySelector('.mascot-figure')).animationName === 'none',
+      };
+    })()`);
+    assert.equal(mascot.exists, true, `${viewport.name}: football mascot missing body details`);
+    assert.equal(mascot.withinViewport, true, `${viewport.name}: mascot button is outside viewport`);
+    assert.equal(mascot.reducedMotionStopped, true, `${viewport.name}: reduced-motion preference ignored`);
+    for (const move of ['wave', 'kick', 'dance']) {
+      await evaluate(`document.querySelector('.mascot-action')?.click()`);
+      await waitFor(() => evaluate(`document.querySelector('.mascot-dock.is-playing')?.dataset.move === '${move}'`), 8000);
+      assert.equal(await evaluate(`!!document.querySelector('.mascot-message[role="status"]')`), true,
+        `${viewport.name}: ${move} interaction did not show feedback`);
+    }
+    await capture(`${viewport.name}-mascot.png`);
+    screenshots.push(`${viewport.name}-mascot.png`);
+    checks.push({ viewport: viewport.name, mascot });
     const pendingNotice = await evaluate('(() => { const el = document.querySelector(".results-area .source-notice[role=status]"); return { text: el?.textContent?.trim() ?? "", official: [...(el?.querySelectorAll("a") ?? [])].some(a => a.href.startsWith("https://vpf.vn/")) }; })()');
     assert.equal(Boolean(pendingNotice.text), pendingVietnam.length > 0,
       `${viewport.name}: all-competitions V.League data notice differs from API`);

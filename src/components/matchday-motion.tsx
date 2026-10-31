@@ -88,21 +88,20 @@ export function BallLoading({ label = "Đang cập nhật tỷ số" }: { label?
 
 export function MatchdayMascot({ event }: { event: GoalEvent | null }) {
   const [celebrating, setCelebrating] = useState(false);
-  const [expanded, setExpanded] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [move, setMove] = useState<"wave" | "kick" | "dance">("dance");
   const timerRef = useRef<number | null>(null);
   const dockRef = useRef<HTMLDivElement>(null);
 
-  // Pause the lightweight CSS path in background tabs. CSS itself handles
-  // hover, focus, celebration and reduced-motion without per-frame React work.
+  // All character motion is CSS-driven; inactive browser tabs pause every layer.
   useEffect(() => {
     const dock = dockRef.current;
     if (!dock) return;
-    const syncVisibility = () => { dock.style.animationPlayState = document.hidden ? "paused" : ""; };
+    const syncVisibility = () => { dock.dataset.paused = String(document.hidden); };
     syncVisibility();
     document.addEventListener("visibilitychange", syncVisibility);
     return () => {
       document.removeEventListener("visibilitychange", syncVisibility);
-      dock.style.animationPlayState = "";
     };
   }, []);
 
@@ -114,35 +113,54 @@ export function MatchdayMascot({ event }: { event: GoalEvent | null }) {
   }, [event]);
   useEffect(() => () => { if (timerRef.current !== null) window.clearTimeout(timerRef.current); }, []);
 
-  const cheer = () => {
+  const play = () => {
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-    setExpanded((prev) => !prev);
-    setCelebrating(true);
-    timerRef.current = window.setTimeout(() => setCelebrating(false), 1000);
+    setMove((previous) => previous === "wave" ? "kick" : previous === "kick" ? "dance" : "wave");
+    setPlaying(true);
+    timerRef.current = window.setTimeout(() => setPlaying(false), 2400);
   };
 
+  const messages = { wave: "Xin chào! Cùng cổ vũ nhé!", kick: "Sút! Đường bóng tuyệt đẹp!", dance: "Nhảy mừng cùng SPORTS247!" };
+
   return (
-    <div ref={dockRef} className={`mascot-dock ${celebrating ? "is-celebrating" : ""}`}>
-      {(event || expanded) && (
+    <div ref={dockRef} className={`mascot-dock ${celebrating ? "is-celebrating" : ""} ${playing ? "is-playing" : ""}`} data-move={move}>
+      {(celebrating && event || playing) && (
         <div className="mascot-message" role="status" aria-live="polite">
-          {event ? <><strong>VÀO!!!</strong> {event.teamName} · {event.score}</> : <><strong>Hú!</strong> Sẵn sàng cho trận đấu!</>}
+          {celebrating && event ? <><strong>VÀO!!!</strong> {event.teamName} · {event.score}</> : <><strong>Bóng Bự:</strong> {messages[move]}</>}
         </div>
       )}
-      <button className="mascot-action" type="button" onClick={cheer} aria-label="Tương tác với linh vật bóng đá" aria-pressed={expanded}
+      <button className="mascot-action" type="button" onClick={play} aria-label="Chạm để Bóng Bự vẫy tay, sút bóng hoặc nhảy múa"
         onPointerMove={(pointer) => {
           const bounds = pointer.currentTarget.getBoundingClientRect();
-          pointer.currentTarget.style.setProperty("--gaze-x", `${((pointer.clientX - bounds.left) / bounds.width - .5) * 7}px`);
+          pointer.currentTarget.style.setProperty("--gaze-x", `${((pointer.clientX - bounds.left) / bounds.width - .5) * 5}px`);
+          pointer.currentTarget.style.setProperty("--gaze-y", `${((pointer.clientY - bounds.top) / bounds.height - .5) * 4}px`);
         }}
         onPointerLeave={(pointer) => {
           pointer.currentTarget.style.removeProperty("--gaze-x");
+          pointer.currentTarget.style.removeProperty("--gaze-y");
         }}>
-        <span className="mascot-art" aria-hidden="true">
-          <span className="mascot-scarf" />
-          <span className="mascot-body"><Football className="mascot-football" /><span className="mascot-eye left" /><span className="mascot-eye right" /><span className="mascot-smile" /></span>
-          <span className="mascot-foot left" /><span className="mascot-foot right" />
+        <span className="mascot-stage" aria-hidden="true">
+          <span className="mascot-aura" />
+          <span className="mascot-spark spark-one" /><span className="mascot-spark spark-two" /><span className="mascot-spark spark-three" /><span className="mascot-spark spark-four" />
+          <span className="mascot-shadow" />
+          <span className="mascot-figure">
+            <span className="mascot-arm left"><i /></span><span className="mascot-arm right"><i /></span>
+            <span className="mascot-foot left" /><span className="mascot-foot right" />
+            <span className="mascot-body">
+              <Football className="mascot-football" />
+              <span className="mascot-face">
+                <span className="mascot-brow left" /><span className="mascot-brow right" />
+                <span className="mascot-eye left" /><span className="mascot-eye right" />
+                <span className="mascot-cheek left" /><span className="mascot-cheek right" />
+                <span className="mascot-smile" />
+              </span>
+            </span>
+            <span className="mascot-scarf" /><span className="mascot-scarf-tail" />
+            <span className="mascot-number">247</span>
+          </span>
         </span>
       </button>
-      <span className="mascot-muted"><VolumeX size={11} /> Không âm thanh</span>
+      <span className="mascot-muted"><VolumeX size={11} /> Chạm để chơi · Không âm thanh</span>
     </div>
   );
 }
