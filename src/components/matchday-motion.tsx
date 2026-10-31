@@ -121,12 +121,14 @@ export function MatchdayMascot({ event }: { event: GoalEvent | null }) {
   };
 
   const messages = { wave: "Xin chào! Cùng cổ vũ nhé!", kick: "Sút! Đường bóng tuyệt đẹp!", dance: "Nhảy mừng cùng SPORTS247!" };
+  const shortMessages = { wave: "Xin chào!", kick: "Sút bóng!", dance: "Quẩy nào!" };
 
   return (
     <div ref={dockRef} className={`mascot-dock ${celebrating ? "is-celebrating" : ""} ${playing ? "is-playing" : ""}`} data-move={move}>
       {(celebrating && event || playing) && (
         <div className="mascot-message" role="status" aria-live="polite">
-          {celebrating && event ? <><strong>VÀO!!!</strong> {event.teamName} · {event.score}</> : <><strong>Bóng Bự:</strong> {messages[move]}</>}
+          <span className="mascot-message-full">{celebrating && event ? <><strong>VÀO!!!</strong> {event.teamName} · {event.score}</> : <><strong>Bóng Bự:</strong> {messages[move]}</>}</span>
+          <span className="mascot-message-short">{celebrating && event ? "VÀO!!!" : shortMessages[move]}</span>
         </div>
       )}
       <button className="mascot-action" type="button" onClick={play} aria-label="Chạm để Bóng Bự vẫy tay, sút bóng hoặc nhảy múa"

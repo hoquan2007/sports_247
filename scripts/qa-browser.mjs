@@ -12,7 +12,7 @@ const DISPLAY_LEAGUES = [...LEAGUES, ...VIETNAM_LEAGUES];
 
 const base = process.env.SPORTS247_BASE_URL ?? 'http://127.0.0.1:3199';
 const chrome = process.env.CHROME_PATH ?? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-const outputDir = path.resolve('docs/qa');
+const outputDir = path.resolve(process.env.SPORTS247_QA_OUTPUT_DIR ?? 'docs/qa');
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const profile = await mkdtemp(path.join(tmpdir(), 'sports247-chrome-'));
 let browser;
@@ -180,9 +180,26 @@ try {
       assert.equal(await evaluate(`!!document.querySelector('.mascot-message[role="status"]')`), true,
         `${viewport.name}: ${move} interaction did not show feedback`);
     }
+    const mascotCollision = await evaluate(`(() => {
+      const button = document.querySelector('.mascot-action');
+      const bubble = document.querySelector('.mascot-message');
+      const controls = [...document.querySelectorAll('.spotlight-score, .spotlight-open, .spotlight-controls button')];
+      const overlaps = (left, right) => left && right && left.left < right.right && left.right > right.left && left.top < right.bottom && left.bottom > right.top;
+      const blocked = [button, bubble].flatMap(element => controls.filter(control =>
+        overlaps(element?.getBoundingClientRect(), control.getBoundingClientRect())).map(control => control.className || control.ariaLabel));
+      const heading = document.querySelector('.section-heading h1');
+      return {
+        blocked,
+        messageInsideViewport: !!bubble && bubble.getBoundingClientRect().left >= 0 && bubble.getBoundingClientRect().right <= innerWidth + 1,
+        messageCoversHeading: overlaps(bubble?.getBoundingClientRect(), heading?.getBoundingClientRect()),
+      };
+    })()`);
+    assert.deepEqual(mascotCollision.blocked, [], `${viewport.name}: mascot or message hides a spotlight control`);
+    assert.equal(mascotCollision.messageInsideViewport, true, `${viewport.name}: mascot speech bubble leaves viewport`);
+    assert.equal(mascotCollision.messageCoversHeading, false, `${viewport.name}: mascot message covers MATCHDAY heading`);
     await capture(`${viewport.name}-mascot.png`);
     screenshots.push(`${viewport.name}-mascot.png`);
-    checks.push({ viewport: viewport.name, mascot });
+    checks.push({ viewport: viewport.name, mascot, mascotCollision });
     const pendingNotice = await evaluate('(() => { const el = document.querySelector(".results-area .source-notice[role=status]"); return { text: el?.textContent?.trim() ?? "", official: [...(el?.querySelectorAll("a") ?? [])].some(a => a.href.startsWith("https://vpf.vn/")) }; })()');
     assert.equal(Boolean(pendingNotice.text), pendingVietnam.length > 0,
       `${viewport.name}: all-competitions V.League data notice differs from API`);

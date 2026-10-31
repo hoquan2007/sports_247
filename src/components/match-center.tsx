@@ -667,12 +667,15 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
 
         <main className="workspace">
           <div className="section-heading">
-            <div><span className="matchday-heading-kicker">Cùng nhịp bóng đá</span><h1>Match<span>day.</span></h1></div>
-            <div className="update-indicator">
-              <span className={`status-orb ${totals.live > 0 ? "pulsing" : ""}`} />
-              {feed.partial ? "Một số nguồn đang gián đoạn" : "Kết nối dữ liệu"}
-              <span className="update-stamp">Cập nhật lúc {timeOf(feed.updatedAt)}</span>
+            <div className="matchday-heading-copy">
+              <div><span className="matchday-heading-kicker">Cùng nhịp bóng đá</span><h1>Match<span>day.</span></h1></div>
+              <div className="update-indicator">
+                <span className={`status-orb ${totals.live > 0 ? "pulsing" : ""}`} />
+                {feed.partial ? "Một số nguồn đang gián đoạn" : "Kết nối dữ liệu"}
+                <span className="update-stamp">Cập nhật lúc {timeOf(feed.updatedAt)}</span>
+              </div>
             </div>
+            <MatchdayMascot event={goalEvent} />
           </div>
 
           <MatchSpotlight key={selectedDate} matches={games} onOpen={setFocusedMatch} />
@@ -800,7 +803,6 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
           <footer className="site-footer"><span><b>SPORTS247</b> / FOOTBALL MATCH CENTER</span><span>Giờ hiển thị: Việt Nam (GMT+7) · <span className="footer-live" /> Dữ liệu được cập nhật định kỳ</span><span>© 2026 SPORTS247</span></footer>
         </main>
       </div>
-      <MatchdayMascot event={goalEvent} />
       {focusedMatch && <MatchDialog key={focusedMatch.id} match={games.find((item) => item.id === focusedMatch.id) ?? focusedMatch} onClose={closeDialog} />}
     </div>
   );

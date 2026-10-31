@@ -81,6 +81,7 @@ body { background: var(--paper); color: var(--ink); }
 
 .workspace { padding-top: 25px; }
 .section-heading { margin-bottom: 15px; align-items: center; }
+.matchday-heading-copy { display: flex; flex: 1 1 auto; min-width: 0; align-items: center; justify-content: space-between; gap: 24px; }
 .matchday-heading-kicker { color: var(--lime); font-weight: 800; font-size: 11px; letter-spacing: normal; }
 .section-heading h1 { margin: 3px 0 0; letter-spacing: -2.6px; line-height: 1; font-weight: 920; font-size: clamp(36px, 4.4vw, 54px); text-transform: uppercase; text-wrap: balance; }
 .section-heading h1 span { color: var(--lime); }
@@ -272,7 +273,7 @@ body { background: var(--paper); color: var(--ink); }
 .loading-dots { display: inline-block; width: 14px; white-space: nowrap; overflow: hidden; vertical-align: bottom; animation: loading-ellipsis 1.2s steps(4, end) infinite; }
 
 /* Bóng Bự: an interactive pitch-side companion. Goal reactions use verified score changes. */
-.mascot-dock { --mascot-travel: min(19vh, 150px); position: fixed; top: 35vh; right: 8px; z-index: 30; display: flex; flex-direction: column; align-items: flex-end; pointer-events: none; animation: mascot-travel 21s ease-in-out infinite; transition: opacity .2s ease; opacity: .95; }
+.mascot-dock { --mascot-travel: 7px; position: relative; z-index: 2; flex: 0 0 112px; display: flex; flex-direction: column; align-items: flex-end; pointer-events: none; animation: mascot-travel 21s ease-in-out infinite; transition: opacity .2s ease; opacity: .95; }
 .mascot-dock:hover, .mascot-dock:focus-within, .mascot-dock.is-celebrating, .mascot-dock.is-playing { animation-play-state: paused; opacity: 1; }
 .mascot-dock[data-paused="true"], .mascot-dock[data-paused="true"] * { animation-play-state: paused !important; }
 .mascot-action { position: relative; display: block; width: 112px; height: 127px; padding: 0; border: 0; border-radius: 32px; background: transparent; cursor: pointer; pointer-events: auto; -webkit-tap-highlight-color: transparent; }
@@ -313,6 +314,7 @@ body { background: var(--paper); color: var(--ink); }
 .mascot-spark.spark-three { bottom: 27px; left: 4px; animation-delay: -3s; }
 .mascot-spark.spark-four { bottom: 22px; right: 4px; animation-delay: -1s; background: #ffb87b; }
 .mascot-message { position: absolute; top: 17px; right: calc(100% + 7px); width: max-content; max-width: min(255px, 62vw); padding: 11px 14px; color: var(--ink); font-size: 12px; font-weight: 650; line-height: 1.5; background: rgba(12, 39, 27, .94); backdrop-filter: blur(14px); border: 1px solid rgba(210, 245, 109, .35); border-radius: 13px 13px 3px 13px; box-shadow: 0 10px 22px rgba(0, 0, 0, .28); animation: mascot-message-in .24s ease-out both; }
+.mascot-message-short { display: none; }
 .mascot-message strong { color: var(--lime); }
 .mascot-muted { position: absolute; top: 123px; right: 0; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; padding: 4px 7px; color: var(--ink-soft); background: var(--surface-deep); border: 1px solid var(--line); border-radius: 99px; font-size: 9px; }
 .mascot-dock.is-playing .mascot-spark, .mascot-dock.is-celebrating .mascot-spark { animation: mascot-confetti .75s ease-in-out infinite alternate; }
@@ -495,7 +497,8 @@ body { background: var(--paper); color: var(--ink); }
   .ticker-label strong { font-size: 10px; }
   .ticker-event { min-width: 220px; }
   .workspace { padding: 19px 12px 24px; }
-  .section-heading { margin-bottom: 14px; }
+  .section-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .matchday-heading-copy { flex-direction: column; align-items: flex-start; gap: 0; }
   .section-heading h1 { font-size: 35px; margin-top: 3px; }
 .matchday-heading-kicker { font-size: 9px; letter-spacing: normal; }
   .update-indicator { max-width: 142px; padding: 5px 0 5px 8px; font-size: 10px; gap: 5px; border: 0; }
@@ -526,11 +529,13 @@ body { background: var(--paper); color: var(--ink); }
   .match-team { font-size: 12px; gap: 7px; }
   .match-open { grid-template-columns: 54px minmax(0,1fr) 32px; padding-top: 12px; padding-bottom: 12px; }
   .match-scores { font-size: 16px; }
-  .mascot-dock { --mascot-travel: min(9vh, 66px); top: 53vh; right: 3px; }
+  .mascot-dock { --mascot-travel: 5px; flex-basis: 78px; }
   .mascot-action { width: 78px; height: 90px; }
   .mascot-stage { transform: scale(.7); }
   .mascot-muted { display: none; }
-  .mascot-message { top: 13px; max-width: min(205px, 60vw); font-size: 11px; }
+  .mascot-message { top: 59px; right: calc(100% + 5px); max-width: 92px; padding: 7px 9px; font-size: 10px; white-space: nowrap; }
+  .mascot-message-full { display: none; }
+  .mascot-message-short { display: inline; }
   .dialog-backdrop { z-index: 90; }
 }
 @media (max-width: 370px) {
