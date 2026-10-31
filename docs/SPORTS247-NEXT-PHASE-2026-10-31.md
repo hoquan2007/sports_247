@@ -6,26 +6,28 @@ Ngày cập nhật: **31/10/2026**. Nguồn trạng thái: Git local, kết qu�
 
 | Hạng mục | Kết quả kiểm tra | Trạng thái |
 | --- | --- | --- |
-| Git | Nhánh `codex/sports247-logos-watch-standings`, các thay đổi chức năng tới `4e7978c`, sau đó có commit cập nhật kế hoạch `7d391a9`; `main`/`origin/main` vẫn tại `2f2684c`. | Đã push và mở PR; **chưa merge main** |
+| Git | Nhánh `codex/sports247-logos-watch-standings`, head đã push trước đợt SEO/monitoring là `30a2798`; `main`/`origin/main` vẫn tại `2f2684c`. | Đã push và mở PR; **chưa merge main** |
 | Chất lượng mã | `npm run check` đã đạt lint, typecheck, **78/78 tests**, Next.js 16.3.5 production build (31/10). | PASS |
 | Vercel | `dpl_94uKhp9HvM7RViCY5i4MKn8zkETm` READY, target production; alias `https://sports247-three.vercel.app` và `https://sports247-hnquan.vercel.app`. | Đã deploy |
 | HTTP production | `npm run smoke:local` với `SPORTS247_BASE_URL=https://sports247-three.vercel.app`: **8/8 PASS** (trang chủ, input sai, video V.League không cấu hình, matches, standings). Mặc định không gọi provider video trả phí. | PASS |
 | Feed production 31/10 | **37 trận**; `partial=false`; `errors=[]`, `failedLeagues=[]`; `pendingLeagues=[vie.1,vie.2]`. | ESPN hoạt động; Việt Nam chờ key |
-| GitHub Actions | PR draft [#1](https://github.com/hoquan2007/sports_247/pull/1) head `7d391a9` đã tạo; run [#41213643328](https://github.com/hoquan2007/sports_247/actions/runs/41213643328) **completed / success** với `npm ci` và `npm run check`. | **CI PASS; chờ review/merge** |
+| GitHub Actions | PR draft [#1](https://github.com/hoquan2007/sports_247/pull/1), hiện vẫn mở; run [#41213643328](https://github.com/hoquan2007/sports_247/actions/runs/41213643328) đã **success** ở commit cũ. Cần kiểm tra run mới sau lần push SEO/monitoring. | **PR chưa merge; đợi CI mới** |
 | Video và Việt Nam | `audit:readiness` không có `.env.local`: API-Football, ScoreBat, Redis budget và YouTube đều `disabled`. | Chưa có dữ liệu/live có quyền trong môi trường kiểm thử này |
 
 Ghi chú: trạng thái Vercel và HTTP smoke xác thực website đang phục vụ các API nêu trên; chúng không xác thực toàn bộ trải nghiệm browser, tính ổn định nhiều ngày, CDN, hoặc quyền phát video tại Việt Nam.
 
 **Kiểm chứng bổ sung ngay trong ngày:** Chrome production desktop 1440×900 và mobile 390×844 đều **PASS**, có 8 ảnh bằng chứng; xem [biên bản QA](SPORTS247-PRODUCTION-QA-2026-10-31.md). Đã xác nhận 20 giải, 37 trận, 39/39 ảnh hiển thị, bảng xếp hạng, điều hướng, fallback ESPN/VPF và trạng thái hai V.League pending. HTTP probe phát hiện `/robots.txt` và `/sitemap.xml` trả 404; homepage có description nhưng thiếu canonical và `og:image` — chuyển sang REL-03.
 
+**Đợt tiếp theo — kiểm chứng local trước khi push:** Đã bổ sung `metadataBase`, canonical, Open Graph/Twitter image, `/robots.txt`, `/sitemap.xml`, `/opengraph-image` và script `npm run monitor:production`. `npm run check` đạt **80/80 tests**, lint, typecheck, Next.js build. Kiểm thử Next.js production build trên localhost cổng 34133: HTTP smoke **8/8 PASS**; cả bốn route `/`, `/robots.txt`, `/sitemap.xml`, `/opengraph-image` trả **HTTP 200**; homepage có canonical/OG/Twitter, sitemap và robots đúng domain. Synthetic monitor gọi domain production hiện tại trả `PASS`, 3 endpoint chính đạt, V.League 1/2 vẫn `pending`; không truy cập endpoint video trả phí. **Các route SEO mới chỉ được kiểm tra ở local; production vẫn phục vụ build trước đó cho tới khi deploy bản mới.**
+
 ## 2. Sprint kế tiếp — ưu tiên P0 (có thể làm ngay)
 
 | ID | Việc cần làm | Đầu ra và tiêu chí nghiệm thu | Phụ thuộc |
 | --- | --- | --- | --- |
-| REL-01 | **PR/CI DONE trên `7d391a9`; REVIEW/MERGE PENDING:** [PR #1](https://github.com/hoquan2007/sports_247/pull/1) từ nhánh tính năng sang `main`, 4 commits tính năng và các commit tài liệu; [Actions run #41213643328](https://github.com/hoquan2007/sports_247/actions/runs/41213643328) xanh trên `7d391a9`. | Review toàn bộ diff; xác minh CI lại nếu có commit mới; kiểm tra credentials, bản quyền và deployment; chỉ chuyển PR sang ready/merge khi release gate đạt. | Review/REL-03/OPS-05 |
+| REL-01 | **PR OPEN/DRAFT:** [PR #1](https://github.com/hoquan2007/sports_247/pull/1) từ nhánh tính năng sang `main`. CI từng xanh trên commit trước; cần chạy lại CI sau commit mới. | Review toàn bộ diff; xác minh CI mới; kiểm tra credentials, bản quyền và deployment; chỉ chuyển PR sang ready/merge khi release gate đạt. | Review/REL-03/OPS-05 |
 | REL-02 | **DONE (PRODUCTION CHROME):** Đã QA desktop 1440×900 và mobile 390×844 trên `sports247-three.vercel.app`, bao gồm bảng xếp hạng, modal/watch, bàn phím, filter, ảnh lỗi, hai V.League pending. | 8 ảnh và báo cáo ở `docs/qa/production-2026-10-31/`, [biên bản QA](SPORTS247-PRODUCTION-QA-2026-10-31.md); không tràn ngang, 0 ảnh vỡ, các assertion đều PASS. | Đã đạt |
-| REL-03 | **PENDING FIX:** HTTP probe production: `/robots.txt` và `/sitemap.xml` **404**, thiếu canonical và `og:image`; API matches/standings trả **200** và cache `public`, standings CDN `HIT`. | Thêm metadata, robots/sitemap và social image đúng domain đã chọn; xác minh cache thực tế, Lighthouse mobile/desktop, LCP/CLS và focus/contrast; sau sửa chạy lại production QA. | Cần xác nhận canonical domain; đo Web Vitals |
-| OPS-05 | Thiết kế và bật synthetic monitoring **không gọi video trả phí**: homepage, matches, standings, schema, độ trễ, lỗi upstream và trạng thái pending V.League. | Có lịch kiểm tra (ví dụ mỗi giờ, theo quota), dashboard/lịch sử failures, alert khi 5xx/schema lỗi hoặc nguồn partial kéo dài; ngưỡng và nơi nhận cảnh báo được cấu hình thực tế. | Quyền cấu hình giám sát và nơi nhận alert |
+| REL-03 | **SEO CODE + LOCAL QA DONE; PRODUCTION PENDING:** Đã bổ sung canonical tại `sports247-three.vercel.app`, robots, sitemap, ảnh Open Graph 1200×630; các route trả 200 trong local production build. | Sau deploy xác minh endpoint/canonical/image thực tế, đo Lighthouse mobile/desktop, LCP/CLS và focus/contrast, kiểm tra cache và browser lại. | Deploy bản mới; đo Web Vitals |
+| OPS-05 | **MONITOR CODE + LIVE PROBE DONE; SCHEDULE PENDING:** Script chỉ đọc `/`, `/api/matches`, `/api/standings`; kiểm schema, HTTP, latency, lỗi upstream, `pendingLeagues`. `monitor:production` đã PASS thực tế, workflow GitHub Actions chạy mỗi 6 giờ và thủ công. | Workflow cron chỉ kích hoạt từ `main` sau merge; cần xác nhận lịch sử chạy thực tế và cấu hình nơi nhận cảnh báo (GitHub Actions failure notifications hoặc dịch vụ tương đương). | Merge sau release gate, vận hành alert |
 | REL-04 | Quy trình release: version/commit ↔ Vercel deployment ↔ checklist rollback, ghi kết quả smoke sau mỗi deployment. | Mỗi lần release truy được SHA, deployment ID, alias, test result; có thao tác rollback được thử nghiệm trước khi dựa vào tự động hoá. | REL-01, REL-02 |
 
 **Definition of Done P0:** PR CI xanh, browser QA production đạt, liên kết release và rollback rõ ràng, có kiểm tra chủ động các endpoint quan trọng. Deployment READY + HTTP 200 hiện tại chỉ hoàn thành một phần các điều kiện này.
@@ -53,11 +55,11 @@ Ghi chú: trạng thái Vercel và HTTP smoke xác thực website đang phục v
 
 ## 5. Thứ tự thực hiện và các điểm dừng
 
-1. **Bây giờ:** REL-01 đã có PR/CI xanh; REL-02 đã có browser QA production PASS. Tiếp tục REL-03 (SEO/cache/performance) và OPS-05 (monitoring) rồi review PR trước khi merge `main`. Sau đó chuẩn hóa release/rollback (REL-04).
+1. **Bây giờ:** REL-02 đã có browser QA production PASS. REL-03 và OPS-05 đã có code + kiểm thử local. Push lên PR, kiểm tra CI/preview, sau đó xác minh Lighthouse và cấu hình alert trước khi quyết định merge `main`. Chuẩn hóa release/rollback (REL-04).
 2. **Song song với P0:** yêu cầu thông tin quyền API-Football cho hai hạng V.League; nếu chưa có key/ID thì duy trì `pendingLeagues` và đường dẫn VPF rõ ràng.
 3. **Khi có dữ liệu thật:** VN-01 → VN-02 → DATA-15, đồng thời xử lý quyền logo qua LOGO-10.
 4. **Khi có bản quyền phát:** LIVE-01 → LIVE-02 → LIVE-03. Không nhập token trả phí, tự mở market whitelist hoặc phát nguồn không xác minh chỉ để đạt demo.
 
 **Các rủi ro cần theo dõi:** ESPN Site API công khai không cam kết SLA; thiếu V.League credentials; quyền sử dụng logo/stream; ScoreBat có thể tính phí theo request và view; Vercel serverless/multi-region làm khác biệt cache và quota. Khi chưa xử lý hết, dùng trạng thái `partial/pending/unavailable` minh bạch cho người xem.
 
-**Bước triển khai tiếp theo:** sửa robots/sitemap/canonical/Open Graph, đo Lighthouse, bổ sung synthetic monitoring không tiêu credit video và hoàn thành review PR #1. Không bật video có phí hay merge chỉ dựa vào CI/HTTP smoke.
+**Bước triển khai tiếp theo:** sau khi push code SEO/monitoring, kiểm tra GitHub CI và Vercel preview; đo Lighthouse, xác nhận SEO trên URL được deploy, cấu hình thông báo khi synthetic monitor thất bại và hoàn thành review PR #1. Không bật video có phí hay merge chỉ dựa vào CI/HTTP smoke.
