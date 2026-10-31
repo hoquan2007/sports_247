@@ -12,6 +12,7 @@ import {
 import { BallLoading, MatchdayIntro, MatchdayMascot } from "@/components/matchday-motion";
 import { detectGoalEvent, type GoalEvent } from "@/lib/football/goal-event";
 import { reconcileFeed } from "@/lib/football/feed-state";
+import type { DetailEvent, DetailLineup, DetailStatistic, MatchDetails } from "@/lib/football/match-details";
 import { LEAGUES, shiftDate, vietnamDate, VIETNAM_TIMEZONE } from "@/lib/football/leagues";
 import type { FootballMatch, FootballTeam, MatchFeed, MatchStatus } from "@/lib/football/types";
 
@@ -87,22 +88,204 @@ function MatchRow({ match, saved, onSave, onOpen }: {
   );
 }
 
-function MatchDialog({ match, onClose }: { match: FootballMatch; onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
-  }, [onClose]);
+type DetailTab = "overview" | "stats" | "lineups" | "timeline";
+const DETAIL_TABS: { id: DetailTab; title: string }[] = [
+  { id: "overview", title: "Tổng quan" },
+  { id: "stats", title: "Thống kê" },
+  { id: "lineups", title: "Đội hình" },
+  { id: "timeline", title: "Diễn biến" },
+];
+
+function EmptyDetail({ children }: { children: React.ReactNode }) {
+  return <div className="detail-empty"><Info size={22} aria-hidden="true" /><p>{children}</p></div>;
+}
+
+function StatsList({ statistics, limit }: { statistics: DetailStatistic[]; limit?: number }) {
+  const visible = limit ? statistics.slice(0, limit) : statistics;
   return (
-    <div className="dialog-backdrop" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <section className="match-dialog" role="dialog" aria-modal="true" aria-label={`Chi tiết ${match.home.name} - ${match.away.name}`}>
+    <div className="detail-stats-list">
+      {visible.map((stat) => {
+        const total = Math.max(0, stat.homeValue ?? 0) + Math.max(0, stat.awayValue ?? 0);
+        const homeShare = total > 0 ? Math.max(0, Math.min(100, ((stat.homeValue ?? 0) / total) * 100)) : 50;
+        return (
+          <div className="detail-stat" key={stat.key}>
+            <div className="detail-stat-values"><strong>{stat.home}</strong><span>{stat.label}</span><strong>{stat.away}</strong></div>
+            <div className="detail-stat-bars" aria-hidden="true">
+              <span className="detail-stat-home" style={{ width: `${homeShare}%` }} />
+              <span className="detail-stat-away" style={{ width: `${100 - homeShare}%` }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function EventList({ events, homeId }: { events: DetailEvent[]; homeId: string | null }) {
+  return <ol className="detail-event-list">
+    {events.map((event) => <li key={event.id} className={event.teamId === homeId ? "event-home" : ""}>
+      <span className="detail-event-time mono">{event.minute}</span>
+      <span className={`detail-event-mark detail-event-${event.kind}`} aria-hidden="true">
+        {event.kind === "goal" ? "⚽" : event.kind === "card" ? "▮" : event.kind === "substitution" ? "↔" : "•"}
+      </span>
+      <div><strong>{event.title}</strong>{event.description && <p>{event.description}</p>}</div>
+    </li>)}
+  </ol>;
+}
+
+function LineupCard({ lineup, team }: { lineup: DetailLineup | undefined; team: FootballTeam }) {
+  return <div className="detail-lineup-card">
+    <div className="detail-lineup-heading"><TeamBadge team={team} size={30} /><strong>{team.name}</strong>
+      {lineup?.formation && <span className="mono">{lineup.formation}</span>}
+    </div>
+    {!lineup || (!lineup.starters.length && !lineup.substitutes.length) ? (
+      <p className="detail-muted">Đội hình chưa được ESPN công bố.</p>
+    ) : <>
+      {lineup.starters.length > 0 && <div className="detail-player-group">
+        <h4>Đá chính</h4>
+        {lineup.starters.map((player) => <div className="detail-player" key={player.id}>
+          <span className="mono">{player.number ?? "–"}</span><strong>{player.name}</strong><small>{player.position}</small>
+        </div>)}
+      </div>}
+      {lineup.substitutes.length > 0 && <div className="detail-player-group">
+        <h4>Dự bị / Danh sách cầu thủ</h4>
+        {lineup.substitutes.map((player) => <div className="detail-player" key={player.id}>
+          <span className="mono">{player.number ?? "–"}</span><strong>{player.name}</strong><small>{player.position}</small>
+        </div>)}
+      </div>}
+    </>}
+  </div>;
+}
+
+function MatchDialog({ match, onClose }: { match: FootballMatch; onClose: () => void }) {
+  const dialogRef = useRef<HTMLElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const [tab, setTab] = useState<DetailTab>("overview");
+  const [details, setDetails] = useState<MatchDetails | null>(null);
+  const [detailError, setDetailError] = useState(false);
+  const [retryNumber, setRetryNumber] = useState(0);
+  const supported = match.source === "ESPN";
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    closeRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { onClose(); return; }
+      if (event.key !== "Tab" || !dialogRef.current) return;
+      const focusables = [...dialogRef.current.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])',
+      )].filter((element) => element.getClientRects().length > 0);
+      if (!focusables.length) return;
+      const first = focusables[0], last = focusables.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus();
+    };
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!supported) return;
+    const controller = new AbortController();
+    const load = async () => {
+      try {
+        const params = new URLSearchParams({ league: match.leagueId, event: match.eventId });
+        const response = await fetch(`/api/match-details?${params}`, { signal: controller.signal });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const result = await response.json() as MatchDetails;
+        if (!controller.signal.aborted) { setDetails(result); setDetailError(false); }
+      } catch {
+        if (!controller.signal.aborted) setDetailError(true);
+      }
+    };
+    void load();
+    const timer = match.status === "live" ? window.setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, 60000) : undefined;
+    return () => { controller.abort(); if (timer !== undefined) window.clearInterval(timer); };
+  }, [match.leagueId, match.eventId, match.status, retryNumber, supported]);
+
+  const homeId = details?.homeId ?? match.home.id;
+  const awayId = details?.awayId ?? match.away.id;
+  const hasDetail = Boolean(details);
+  const noDataMessage = match.status === "scheduled"
+    ? "Trận đấu chưa diễn ra. ESPN thường cập nhật đội hình gần giờ bóng lăn, còn thống kê và diễn biến sẽ xuất hiện khi trận bắt đầu."
+    : "ESPN chưa cung cấp dữ liệu cho mục này ở trận đấu hiện tại.";
+  const showEvents = details?.events ?? [];
+  const renderDetail = () => {
+    if (!supported) return <EmptyDetail>Trận này dùng nguồn OpenLigaDB, chưa có dữ liệu chi tiết ESPN. Bạn vẫn có thể xem lịch, tỷ số và thông tin trận phía trên.</EmptyDetail>;
+    if (!hasDetail && !detailError) return <div className="detail-loading" role="status"><RefreshCw className="spinning" size={20} /> Đang tải dữ liệu trận đấu từ ESPN...</div>;
+    if (!hasDetail && detailError) return <div className="detail-empty" role="status"><Info size={22} />
+      <p>Chưa thể kết nối ESPN để tải chi tiết trận. Thông tin cơ bản vẫn được giữ nguyên.</p>
+      <button className="detail-retry" onClick={() => { setDetailError(false); setRetryNumber((n) => n + 1); }}>Thử lại <RefreshCw size={15} /></button>
+    </div>;
+
+    if (tab === "stats") return details!.statistics.length > 0
+      ? <section className="detail-content-card" aria-label="So sánh thống kê">
+        <div className="detail-section-heading"><h3>So sánh hai đội</h3><small>Chủ nhà / Đội khách</small></div>
+        <StatsList statistics={details!.statistics} />
+      </section>
+      : <EmptyDetail>{noDataMessage}</EmptyDetail>;
+
+    if (tab === "lineups") return <div className="detail-lineups">
+      <LineupCard lineup={details!.lineups.find((lineup) => lineup.teamId === homeId)} team={match.home} />
+      <LineupCard lineup={details!.lineups.find((lineup) => lineup.teamId === awayId)} team={match.away} />
+    </div>;
+
+    if (tab === "timeline") return <>
+      <section className="detail-content-card">
+        <div className="detail-section-heading"><h3>Diễn biến chính</h3><small>{showEvents.length ? `${showEvents.length} sự kiện` : "Theo ESPN"}</small></div>
+        {showEvents.length ? <EventList events={showEvents} homeId={homeId} /> : <EmptyDetail>{noDataMessage}</EmptyDetail>}
+      </section>
+      {details!.commentary.length > 0 && <section className="detail-content-card">
+        <div className="detail-section-heading"><h3>Tường thuật</h3><small>ESPN</small></div>
+        <ol className="detail-commentary">
+          {details!.commentary.map((item) => <li key={item.id}><span className="mono">{item.minute}</span><p>{item.text}</p></li>)}
+        </ol>
+      </section>}
+    </>;
+
+    return <>
+      {showEvents.length > 0 && <section className="detail-content-card">
+        <div className="detail-section-heading"><h3>Điểm nhấn trận đấu</h3>
+          <button className="detail-subtle-link" onClick={() => setTab("timeline")}>Xem tất cả <ChevronRight size={15} /></button>
+        </div>
+        <EventList events={showEvents.slice(0, 5)} homeId={homeId} />
+      </section>}
+      {details!.statistics.length > 0 && <section className="detail-content-card">
+        <div className="detail-section-heading"><h3>Thống kê nổi bật</h3>
+          <button className="detail-subtle-link" onClick={() => setTab("stats")}>Chi tiết <ChevronRight size={15} /></button>
+        </div>
+        <StatsList statistics={details!.statistics} limit={4} />
+      </section>}
+      {!showEvents.length && !details!.statistics.length && <EmptyDetail>{noDataMessage}</EmptyDetail>}
+    </>;
+  };
+
+  const chooseTabOnKey = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const destination = event.key === "ArrowRight" ? index + 1 : event.key === "ArrowLeft" ? index - 1
+      : event.key === "Home" ? 0 : event.key === "End" ? DETAIL_TABS.length - 1 : null;
+    if (destination === null) return;
+    event.preventDefault();
+    const nextIndex = (destination + DETAIL_TABS.length) % DETAIL_TABS.length;
+    setTab(DETAIL_TABS[nextIndex].id);
+    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus();
+  };
+
+  return (
+    <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="match-dialog" role="dialog" aria-modal="true" aria-label={`Chi tiết ${match.home.name} - ${match.away.name}`} ref={dialogRef}>
         <div className="dialog-topline">
           <span className="eyebrow">TRUNG TÂM TRẬN ĐẤU <span className="dialog-separator">/</span> {match.leagueName}</span>
-          <button onClick={onClose} className="icon-button" aria-label="Đóng"><X size={20} /></button>
+          <button onClick={onClose} className="icon-button" aria-label="Đóng" ref={closeRef}><X size={20} /></button>
         </div>
-        <p className="dialog-datetime">{dateOf(match.startTime)} · {timeOf(match.startTime)} (GMT+7)</p>
+        <p className="dialog-datetime"><CalendarDays size={15} /> {dateOf(match.startTime)} · {timeOf(match.startTime)} (GMT+7)</p>
         <div className="dialog-scoreline">
           <div className="dialog-team"><TeamBadge team={match.home} size={76} /><strong>{match.home.name}</strong><small>Chủ nhà</small></div>
           <div className="dialog-score">
@@ -112,17 +295,26 @@ function MatchDialog({ match, onClose }: { match: FootballMatch; onClose: () => 
           </div>
           <div className="dialog-team"><TeamBadge team={match.away} size={76} /><strong>{match.away.name}</strong><small>Đội khách</small></div>
         </div>
-        <div className="dialog-facts">
-          <div><MapPin size={18} /><span><small>Sân vận động</small><strong>{match.venue ?? "Chưa công bố"}</strong></span></div>
-          <div><Tv size={18} /><span><small>Kênh phát sóng được ghi nhận</small><strong>{match.broadcasters.join(", ") || "Chưa có thông tin bản quyền tại Việt Nam"}</strong></span></div>
-          <div><Activity size={18} /><span><small>Nguồn tỷ số / lịch</small><strong>{match.source}</strong></span></div>
+        <div className="detail-tabs" role="tablist" aria-label="Nội dung chi tiết trận đấu">
+          {DETAIL_TABS.map((item, index) => <button key={item.id} role="tab"
+            id={`detail-tab-${item.id}`} aria-controls="detail-panel" aria-selected={tab === item.id}
+            tabIndex={tab === item.id ? 0 : -1} onKeyDown={(event) => chooseTabOnKey(event, index)}
+            onClick={() => setTab(item.id)}>{item.title}</button>)}
         </div>
-        <p className="broadcast-note">Thông tin phát sóng có thể dành cho thị trường khác. Để xem video trực tiếp, hãy sử dụng nền tảng sở hữu bản quyền tại khu vực của bạn.</p>
-        {match.matchUrl && (
-          <a className="dialog-link" href={match.matchUrl} target="_blank" rel="noopener noreferrer">
-            Xem thông tin trận tại ESPN <ExternalLink size={17} />
-          </a>
-        )}
+        <div className="detail-panel" role="tabpanel" id="detail-panel" aria-labelledby={`detail-tab-${tab}`} tabIndex={0}>
+          {tab === "overview" && <div className="detail-facts-grid">
+            <div><MapPin size={17} /><span><small>Sân vận động</small><strong>{match.venue ?? "Chưa công bố"}</strong></span></div>
+            <div><Tv size={17} /><span><small>Kênh truyền hình (theo nguồn)</small><strong>{match.broadcasters.join(", ") || "Chưa công bố"}</strong></span></div>
+            {details?.attendance && <div><Trophy size={17} /><span><small>Khán giả</small><strong>{details.attendance}</strong></span></div>}
+            {details?.referee && <div><Activity size={17} /><span><small>Trọng tài</small><strong>{details.referee}</strong></span></div>}
+          </div>}
+          {renderDetail()}
+        </div>
+        <div className="detail-footer">
+          <p><Activity size={14} /> Dữ liệu trận: {match.source}. Kênh phát sóng có thể dành cho thị trường khác; video trực tiếp tùy thuộc bản quyền khu vực.</p>
+          {match.matchUrl && <a className="dialog-link" href={match.matchUrl} target="_blank" rel="noopener noreferrer">
+            Xem trận trên ESPN <ExternalLink size={17} /></a>}
+        </div>
       </section>
     </div>
   );
@@ -494,7 +686,7 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
         </main>
       </div>
       <MatchdayMascot event={goalEvent} />
-      {focusedMatch && <MatchDialog match={focusedMatch} onClose={closeDialog} />}
+      {focusedMatch && <MatchDialog match={games.find((item) => item.id === focusedMatch.id) ?? focusedMatch} onClose={closeDialog} />}
     </div>
   );
 }

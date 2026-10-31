@@ -27,14 +27,15 @@ Không cần API key để chạy các giải được ESPN cung cấp. Trình d
 - Tỷ số, tình trạng trận (chưa bắt đầu / đang diễn ra / kết thúc), logo đội, sân vận động và thông tin truyền hình khi nhà cung cấp có dữ liệu.
 - Bộ lọc giải đấu, trạng thái, tìm kiếm tên đội; lưu trận yêu thích bằng `localStorage`.
 - Tự làm mới khi trang hiển thị mỗi **90 giây**; cache dữ liệu ESPN **90 giây** trên Next.js và hỗ trợ Vercel CDN.
-- Giao diện desktop và điện thoại, modal chi tiết trận, trạng thái trống / lỗi / thiếu nguồn.
+- Giao diện desktop và điện thoại, trung tâm chi tiết trận với các tab **Tổng quan**, **Thống kê**, **Đội hình** và **Diễn biến**.
+- Chi tiết theo ESPN Site API: so sánh thông số hai đội, các sự kiện chính, danh sách đá chính/dự bị và tường thuật khi ESPN cung cấp. Trận chưa diễn ra hoặc không có dữ liệu sẽ hiển thị trạng thái tương ứng; không dựng số liệu giả.
 - Không hiển thị dữ liệu mô phỏng như tỷ số thật.
 
 ## API sử dụng
 
 | Nguồn | Quyền truy cập | Mục đích | Lưu ý |
 | --- | --- | --- | --- |
-| [ESPN public Site API](https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard) | Không cần key | Lịch, tỷ số, trạng thái, logo đội, thông tin trận | API **không chính thức**; không có SLA và có thể đổi cấu trúc, hạn chế truy cập. |
+| [ESPN public Site API](https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard) | Không cần key | Lịch, tỷ số, trạng thái, logo đội, thông tin trận và [summary theo event](https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/summary?event=401879248) | API **không chính thức**; không có SLA và có thể đổi cấu trúc, hạn chế truy cập. |
 | [OpenLigaDB](https://api.openligadb.de/) | Không cần key | Dự phòng Bundesliga khi ESPN không truy cập được | Dữ liệu cộng đồng theo [ODbL](https://opendatacommons.org/licenses/odbl/1-0/); kết quả có thể cập nhật trễ. |
 | [API-Football](https://www.api-football.com/pricing) | Free account / API key | Phương án nâng cấp khi cần bao phủ giải đấu hơn | Free hiện giới hạn 100 request/ngày; **chưa bật** trong bản này. |
 | [TheSportsDB](https://www.thesportsdb.com/docs/api) | Khóa thử `123` | Phương án bổ sung dữ liệu/ảnh | API v1 free bị giới hạn số sự kiện trả về; livescore v2 là trả phí. |
@@ -45,9 +46,12 @@ Endpoint của ứng dụng:
 
 ```http
 GET /api/matches?date=2026-10-31
+GET /api/match-details?league=eng.1&event=401879248
 ```
 
 Trả về `{ date, matches, updatedAt, sources, partial, errors }`. Mỗi trận bao gồm tên giải, tên/logo hai đội, giờ UTC ISO, tỷ số (`null` trước khi diễn ra), trạng thái, sân, kênh phát sóng và nguồn. Dữ liệu lịch theo ngày Việt Nam cần gọi **hai ngày UTC** vì mốc 00:00 GMT+7 nằm trong ngày UTC trước đó.
+
+`/api/match-details` chỉ nhận các mã giải trong danh sách đang bật và ESPN event ID dạng số. API trả về thống kê, sự kiện, đội hình, tường thuật, trọng tài, lượng khán giả đã được chuẩn hóa từ ESPN, các trường không có sẽ rỗng. Dữ liệu được cache 60 giây; khi đang xem trận trực tiếp, cửa sổ chi tiết sẽ thử cập nhật sau mỗi 60 giây. Với trận từ OpenLigaDB, chỉ hiển thị thông tin cơ bản, vì mã trận không tương thích ESPN.
 
 Các giải mặc định: Premier League, La Liga, Bundesliga, Serie A, Ligue 1, Champions League, Europa League, Championship, MLS. Giải khác như V.League cần nhà cung cấp hỗ trợ trước khi bật. Logo được lấy từ dữ liệu ESPN/OpenLigaDB, không tự động sao chép hình ảnh từ website 24h. Trang [24h lịch thi đấu](https://www.24h.com.vn/bong-da/lich-thi-dau-bong-da-hom-nay-moi-nhat-c48a364371.html) chỉ được dùng để tham khảo nội dung/tổ chức và kiểm tra chéo các trận.
 
@@ -63,13 +67,15 @@ Khi có hợp đồng hoặc nguồn embed chính thức, có thể bổ sung tr
 src/
   app/
     api/matches/route.ts     API proxy, validation, response cache
+    api/match-details/route.ts API chi tiết ESPN theo event
     page.tsx                 Server-render dữ liệu cho ngày hiện tại
     layout.tsx               SEO và khung tài liệu
     sports.css               Responsive dark scoreboard
   components/
-    match-center.tsx         Giao diện client và bộ lọc / modal / polling
+    match-center.tsx         Giao diện client, bộ lọc, chi tiết trận và polling
   lib/football/
     espn.ts                  Adapter ESPN + OpenLigaDB fallback
+    match-details.ts         ESPN soccer summary adapter + normalized models
     leagues.ts               Danh sách giải, xử lý ngày và múi giờ
     types.ts                 Contract API frontend/backend
 ```
