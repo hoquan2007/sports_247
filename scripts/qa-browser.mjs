@@ -126,6 +126,7 @@ try {
   for (const viewport of [
     { name: 'desktop', width: 1440, height: 900, mobile: false },
     { name: 'mobile', width: 390, height: 844, mobile: true },
+    { name: 'compact', width: 320, height: 740, mobile: true },
   ]) {
     await send('Emulation.setDeviceMetricsOverride', { width: viewport.width, height: viewport.height, deviceScaleFactor: 1, mobile: viewport.mobile });
     await send('Page.navigate', { url: base });
@@ -180,6 +181,17 @@ try {
       assert.equal(await evaluate(`!!document.querySelector('.mascot-message[role="status"]')`), true,
         `${viewport.name}: ${move} interaction did not show feedback`);
     }
+    await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
+    const activeMotion = await evaluate(`(async () => {
+      const figure = document.querySelector('.mascot-figure');
+      const animation = getComputedStyle(figure).animationName;
+      const initial = getComputedStyle(figure).transform;
+      await new Promise(resolve => setTimeout(resolve, 160));
+      return { animation, moves: getComputedStyle(figure).transform !== initial };
+    })()`);
+    assert.equal(activeMotion.animation, 'mascot-dance', `${viewport.name}: interactive dance animation missing`);
+    assert.equal(activeMotion.moves, true, `${viewport.name}: mascot does not move with animation enabled`);
+    await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
     const mascotCollision = await evaluate(`(() => {
       const button = document.querySelector('.mascot-action');
       const bubble = document.querySelector('.mascot-message');
@@ -188,18 +200,27 @@ try {
       const blocked = [button, bubble].flatMap(element => controls.filter(control =>
         overlaps(element?.getBoundingClientRect(), control.getBoundingClientRect())).map(control => control.className || control.ariaLabel));
       const heading = document.querySelector('.section-heading h1');
+      const headingArea = document.querySelector('.section-heading');
+      const status = document.querySelector('.update-indicator');
+      const spotlight = document.querySelector('.spotlight');
       return {
         blocked,
         messageInsideViewport: !!bubble && bubble.getBoundingClientRect().left >= 0 && bubble.getBoundingClientRect().right <= innerWidth + 1,
         messageCoversHeading: overlaps(bubble?.getBoundingClientRect(), heading?.getBoundingClientRect()),
+        messageCoversStatus: overlaps(bubble?.getBoundingClientRect(), status?.getBoundingClientRect()),
+        messageCoversSpotlight: overlaps(bubble?.getBoundingClientRect(), spotlight?.getBoundingClientRect()),
+        messageFitsHeadingArea: !!bubble && !!headingArea && bubble.getBoundingClientRect().bottom <= headingArea.getBoundingClientRect().bottom + 1,
       };
     })()`);
     assert.deepEqual(mascotCollision.blocked, [], `${viewport.name}: mascot or message hides a spotlight control`);
     assert.equal(mascotCollision.messageInsideViewport, true, `${viewport.name}: mascot speech bubble leaves viewport`);
     assert.equal(mascotCollision.messageCoversHeading, false, `${viewport.name}: mascot message covers MATCHDAY heading`);
+    assert.equal(mascotCollision.messageCoversStatus, false, `${viewport.name}: mascot message covers live-data status`);
+    assert.equal(mascotCollision.messageCoversSpotlight, false, `${viewport.name}: mascot message covers featured match`);
+    assert.equal(mascotCollision.messageFitsHeadingArea, true, `${viewport.name}: mascot message escapes heading area`);
     await capture(`${viewport.name}-mascot.png`);
     screenshots.push(`${viewport.name}-mascot.png`);
-    checks.push({ viewport: viewport.name, mascot, mascotCollision });
+    checks.push({ viewport: viewport.name, mascot, activeMotion, mascotCollision });
     const pendingNotice = await evaluate('(() => { const el = document.querySelector(".results-area .source-notice[role=status]"); return { text: el?.textContent?.trim() ?? "", official: [...(el?.querySelectorAll("a") ?? [])].some(a => a.href.startsWith("https://vpf.vn/")) }; })()');
     assert.equal(Boolean(pendingNotice.text), pendingVietnam.length > 0,
       `${viewport.name}: all-competitions V.League data notice differs from API`);
