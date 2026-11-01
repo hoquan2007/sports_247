@@ -273,8 +273,8 @@ body { background: var(--paper); color: var(--ink); }
 .loading-dots { display: inline-block; width: 14px; white-space: nowrap; overflow: hidden; vertical-align: bottom; animation: loading-ellipsis 1.2s steps(4, end) infinite; }
 
 /* Bóng Bự: an interactive pitch-side companion. Goal reactions use verified score changes. */
-.mascot-dock { --mascot-travel: 7px; position: relative; z-index: 2; flex: 0 0 112px; display: flex; flex-direction: column; align-items: flex-end; pointer-events: none; animation: mascot-travel 21s ease-in-out infinite; transition: opacity .2s ease; opacity: .95; }
-.mascot-dock:hover, .mascot-dock:focus-within, .mascot-dock.is-celebrating, .mascot-dock.is-playing { animation-play-state: paused; opacity: 1; }
+.mascot-dock { position: fixed; right: 14px; bottom: 28px; z-index: 50; width: 112px; display: flex; flex-direction: column; align-items: flex-end; pointer-events: none; will-change: transform; transition: opacity .2s ease; opacity: .95; }
+.mascot-dock:hover, .mascot-dock:focus-within, .mascot-dock.is-celebrating, .mascot-dock.is-playing { opacity: 1; }
 .mascot-dock[data-paused="true"], .mascot-dock[data-paused="true"] * { animation-play-state: paused !important; }
 .mascot-action { position: relative; display: block; width: 112px; height: 127px; padding: 0; border: 0; border-radius: 32px; background: transparent; cursor: pointer; pointer-events: auto; -webkit-tap-highlight-color: transparent; }
 .mascot-action:focus-visible { outline: 2px solid var(--lime); outline-offset: 3px; }
@@ -314,6 +314,10 @@ body { background: var(--paper); color: var(--ink); }
 .mascot-spark.spark-three { bottom: 27px; left: 4px; animation-delay: -3s; }
 .mascot-spark.spark-four { bottom: 22px; right: 4px; animation-delay: -1s; background: #ffb87b; }
 .mascot-message { position: absolute; top: 17px; right: calc(100% + 7px); width: max-content; max-width: min(255px, 62vw); padding: 11px 14px; color: var(--ink); font-size: 12px; font-weight: 650; line-height: 1.5; background: rgba(12, 39, 27, .94); backdrop-filter: blur(14px); border: 1px solid rgba(210, 245, 109, .35); border-radius: 13px 13px 3px 13px; box-shadow: 0 10px 22px rgba(0, 0, 0, .28); animation: mascot-message-in .24s ease-out both; }
+.mascot-dock[data-side="left"] .mascot-message { right: auto; left: calc(100% + 7px); border-radius: 13px 13px 13px 3px; }
+.mascot-dock[data-walking="true"] .mascot-foot.left { animation-duration: .44s; }
+.mascot-dock[data-walking="true"] .mascot-foot.right { animation-duration: .44s; }
+.mascot-dock[data-walking="true"] .mascot-scarf-tail { animation-duration: .5s; }
 .mascot-message-short { display: none; }
 .mascot-message strong { color: var(--lime); }
 .mascot-muted { position: absolute; top: 123px; right: 0; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; padding: 4px 7px; color: var(--ink-soft); background: var(--surface-deep); border: 1px solid var(--line); border-radius: 99px; font-size: 9px; }
@@ -475,12 +479,6 @@ body { background: var(--paper); color: var(--ink); }
 @keyframes mascot-dance { from { transform: translateY(-5px) rotate(-13deg) scale(1.03); } to { transform: translateY(-13px) rotate(13deg) scale(1.06); } }
 @keyframes mascot-celebrate { from { transform: translateY(-4px) rotate(-12deg) scale(1); } to { transform: translateY(-24px) rotate(14deg) scale(1.1); } }
 @keyframes mascot-confetti { from { opacity: .4; transform: translate(-4px, 8px) scale(.7) rotate(0); } to { opacity: 1; transform: translate(7px, -12px) scale(1.8) rotate(90deg); } }
-@keyframes mascot-travel {
-  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
-  22% { transform: translate3d(-5px, calc(var(--mascot-travel) * .4), 0) rotate(-4deg); }
-  50% { transform: translate3d(0, var(--mascot-travel), 0) rotate(-2deg); }
-  76% { transform: translate3d(-6px, calc(var(--mascot-travel) * .45), 0) rotate(4deg); }
-}
 
 @media (max-width: 980px) {
   .spotlight { min-height: 340px; }
@@ -529,11 +527,12 @@ body { background: var(--paper); color: var(--ink); }
   .match-team { font-size: 12px; gap: 7px; }
   .match-open { grid-template-columns: 54px minmax(0,1fr) 32px; padding-top: 12px; padding-bottom: 12px; }
   .match-scores { font-size: 16px; }
-  .mascot-dock { --mascot-travel: 5px; flex-basis: 78px; }
+  .mascot-dock { width: 78px; }
   .mascot-action { width: 78px; height: 90px; }
   .mascot-stage { transform: scale(.7); }
   .mascot-muted { display: none; }
-  .mascot-message { top: 91px; right: 0; max-width: 92px; padding: 7px 9px; font-size: 10px; white-space: nowrap; border-radius: 13px 3px 13px 13px; }
+  .mascot-message, .mascot-dock[data-side="left"] .mascot-message { top: auto; bottom: calc(100% + 5px); right: 0; left: auto; max-width: 92px; padding: 7px 9px; font-size: 10px; white-space: nowrap; border-radius: 13px 13px 3px 13px; }
+  .mascot-dock[data-side="left"] .mascot-message { right: auto; left: 0; }
   .mascot-message-full { display: none; }
   .mascot-message-short { display: inline; }
   .dialog-backdrop { z-index: 90; }
@@ -548,7 +547,7 @@ body { background: var(--paper); color: var(--ink); }
   .spotlight-location { max-width: 120px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .mascot-dock { will-change: auto; animation: none; }
+  .mascot-dock { will-change: auto; }
   .mascot-dock *, .mascot-dock *::before, .mascot-dock *::after { animation: none !important; transition: none !important; }
   .matchday-intro { display: none; }
   .ticker-track, .loading-football, .loading-crowd, .loading-dots, .mascot-action, .mascot-eye, .spotlight-progress, .spotlight-score, .intro-crowd { animation: none; }

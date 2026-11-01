@@ -92,18 +92,104 @@ export function MatchdayMascot({ event }: { event: GoalEvent | null }) {
   const [move, setMove] = useState<"wave" | "kick" | "dance">("dance");
   const timerRef = useRef<number | null>(null);
   const dockRef = useRef<HTMLDivElement>(null);
+  const roamRef = useRef<gsap.core.Timeline | null>(null);
+  const busyRef = useRef(false);
 
-  // All character motion is CSS-driven; inactive browser tabs pause every layer.
-  useEffect(() => {
+  const syncRoaming = useCallback(() => {
     const dock = dockRef.current;
-    if (!dock) return;
-    const syncVisibility = () => { dock.dataset.paused = String(document.hidden); };
-    syncVisibility();
-    document.addEventListener("visibilitychange", syncVisibility);
-    return () => {
-      document.removeEventListener("visibilitychange", syncVisibility);
-    };
+    const timeline = roamRef.current;
+    if (!dock || !timeline) return;
+    const paused = document.hidden || busyRef.current ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+      dock.matches(":hover, :focus-within");
+    timeline.paused(paused);
+    if (paused) dock.dataset.walking = "false";
   }, []);
+
+  useGSAP(() => {
+    const dock = dockRef.current;
+    const action = dock?.querySelector<HTMLElement>(".mascot-action");
+    if (!dock || !action) return;
+
+    const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const buildRoute = () => {
+      roamRef.current?.kill();
+      roamRef.current = null;
+      dock.dataset.walking = "false";
+      dock.dataset.side = "right";
+      gsap.set(dock, { x: 0, y: 0 });
+      if (motionPreference.matches) return;
+
+      const margin = 14;
+      const travelX = Math.max(0, window.innerWidth - action.offsetWidth - margin * 2);
+      const travelY = Math.max(0, Math.min(
+        window.innerHeight - action.offsetHeight - 28 - 88,
+        window.innerWidth <= 600 ? 260 : 520,
+      ));
+      if (travelX < 24 || travelY < 24) return;
+
+      // Explore the screen perimeter, leaving the central scores and match controls readable.
+      const stops = [
+        { x: -Math.min(180, travelX * .42), y: 0 },
+        { x: -travelX, y: -Math.min(32, travelY * .12) },
+        { x: -travelX, y: -travelY * .64 },
+        { x: -travelX * .78, y: -travelY },
+        { x: -travelX * .2, y: -travelY },
+        { x: 0, y: -travelY * .58 },
+        { x: 0, y: 0 },
+      ];
+
+      const timeline = gsap.timeline({ repeat: -1, repeatDelay: 1.2, paused: true });
+      let previous = { x: 0, y: 0 };
+      for (const stop of stops) {
+        const distance = Math.hypot(stop.x - previous.x, stop.y - previous.y);
+        timeline.to(dock, {
+          x: stop.x,
+          y: stop.y,
+          duration: Math.max(1.1, distance / 82),
+          ease: "sine.inOut",
+          onStart: () => { dock.dataset.walking = "true"; },
+          onUpdate: () => {
+            if (dock.dataset.walking !== "true") dock.dataset.walking = "true";
+            const side = Number(gsap.getProperty(dock, "x")) < -travelX / 2 ? "left" : "right";
+            if (dock.dataset.side !== side) dock.dataset.side = side;
+          },
+          onComplete: () => { dock.dataset.walking = "false"; },
+        }, "+=1.1");
+        previous = stop;
+      }
+      roamRef.current = timeline;
+      syncRoaming();
+    };
+
+    let resizeFrame = 0;
+    const onResize = () => {
+      window.cancelAnimationFrame(resizeFrame);
+      resizeFrame = window.requestAnimationFrame(buildRoute);
+    };
+    const onVisibility = () => {
+      dock.dataset.paused = String(document.hidden);
+      syncRoaming();
+    };
+    buildRoute();
+    onVisibility();
+    window.addEventListener("resize", onResize);
+    document.addEventListener("visibilitychange", onVisibility);
+    motionPreference.addEventListener("change", buildRoute);
+    return () => {
+      window.cancelAnimationFrame(resizeFrame);
+      window.removeEventListener("resize", onResize);
+      document.removeEventListener("visibilitychange", onVisibility);
+      motionPreference.removeEventListener("change", buildRoute);
+      roamRef.current?.kill();
+      roamRef.current = null;
+    };
+  }, { scope: dockRef, dependencies: [syncRoaming] });
+
+  useEffect(() => {
+    busyRef.current = playing || celebrating;
+    syncRoaming();
+  }, [playing, celebrating, syncRoaming]);
 
   useEffect(() => {
     if (!event) return;
@@ -124,7 +210,7 @@ export function MatchdayMascot({ event }: { event: GoalEvent | null }) {
   const shortMessages = { wave: "Xin chào!", kick: "Sút bóng!", dance: "Quẩy nào!" };
 
   return (
-    <div ref={dockRef} className={`mascot-dock ${celebrating ? "is-celebrating" : ""} ${playing ? "is-playing" : ""}`} data-move={move}>
+    <div ref={dockRef} className={`mascot-dock ${celebrating ? "is-celebrating" : ""} ${playing ? "is-playing" : ""}`} data-move={move} data-walking="false" data-side="right">
       {(celebrating && event || playing) && (
         <div className="mascot-message" role="status" aria-live="polite">
           <span className="mascot-message-full">{celebrating && event ? <><strong>VÀO!!!</strong> {event.teamName} · {event.score}</> : <><strong>Bóng Bự:</strong> {messages[move]}</>}</span>
@@ -132,6 +218,8 @@ export function MatchdayMascot({ event }: { event: GoalEvent | null }) {
         </div>
       )}
       <button className="mascot-action" type="button" onClick={play} aria-label="Chạm để Bóng Bự vẫy tay, sút bóng hoặc nhảy múa"
+        onPointerEnter={syncRoaming}
+        onFocus={syncRoaming} onBlur={() => window.requestAnimationFrame(syncRoaming)}
         onPointerMove={(pointer) => {
           const bounds = pointer.currentTarget.getBoundingClientRect();
           pointer.currentTarget.style.setProperty("--gaze-x", `${((pointer.clientX - bounds.left) / bounds.width - .5) * 5}px`);
@@ -140,6 +228,7 @@ export function MatchdayMascot({ event }: { event: GoalEvent | null }) {
         onPointerLeave={(pointer) => {
           pointer.currentTarget.style.removeProperty("--gaze-x");
           pointer.currentTarget.style.removeProperty("--gaze-y");
+          window.requestAnimationFrame(syncRoaming);
         }}>
         <span className="mascot-stage" aria-hidden="true">
           <span className="mascot-aura" />

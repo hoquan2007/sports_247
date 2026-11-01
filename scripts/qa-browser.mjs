@@ -168,13 +168,17 @@ try {
       const rect = button?.getBoundingClientRect();
       return {
         exists: !!button && !!dock && !!button.querySelector('.mascot-face') && !!button.querySelector('.mascot-arm.left'),
-        withinViewport: !!rect && rect.width > 40 && rect.left >= 0 && rect.right <= innerWidth + 1,
+        withinViewport: !!rect && rect.width > 40 && rect.left >= 0 && rect.right <= innerWidth + 1 && rect.top >= 0 && rect.bottom <= innerHeight + 1,
+        fixed: !!dock && getComputedStyle(dock).position === 'fixed',
         reducedMotionStopped: !!dock && getComputedStyle(dock.querySelector('.mascot-figure')).animationName === 'none',
+        roamingStopped: !!dock && dock.dataset.walking === 'false',
       };
     })()`);
     assert.equal(mascot.exists, true, `${viewport.name}: football mascot missing body details`);
     assert.equal(mascot.withinViewport, true, `${viewport.name}: mascot button is outside viewport`);
+    assert.equal(mascot.fixed, true, `${viewport.name}: mascot must follow viewport when scrolling`);
     assert.equal(mascot.reducedMotionStopped, true, `${viewport.name}: reduced-motion preference ignored`);
+    assert.equal(mascot.roamingStopped, true, `${viewport.name}: roaming continues under reduced motion`);
     for (const move of ['wave', 'kick', 'dance']) {
       await evaluate(`document.querySelector('.mascot-action')?.click()`);
       await waitFor(() => evaluate(`document.querySelector('.mascot-dock.is-playing')?.dataset.move === '${move}'`), 8000);
@@ -191,7 +195,46 @@ try {
     })()`);
     assert.equal(activeMotion.animation, 'mascot-dance', `${viewport.name}: interactive dance animation missing`);
     assert.equal(activeMotion.moves, true, `${viewport.name}: mascot does not move with animation enabled`);
+    await waitFor(() => evaluate(`!document.querySelector('.mascot-dock.is-playing')`), 7000);
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: viewport.width / 2, y: viewport.height / 2 });
+    await waitFor(() => evaluate(`document.querySelector('.mascot-dock')?.dataset.walking === 'true'`), 7000);
+    const roaming = await evaluate(`(async () => {
+      const button = document.querySelector('.mascot-action');
+      const dock = document.querySelector('.mascot-dock');
+      const start = button.getBoundingClientRect();
+      let withinViewport = true;
+      for (let i = 0; i < 5; i++) {
+        await new Promise(resolve => setTimeout(resolve, 180));
+        const box = button.getBoundingClientRect();
+        withinViewport &&= box.left >= -1 && box.right <= innerWidth + 1 && box.top >= -1 && box.bottom <= innerHeight + 1;
+      }
+      const end = button.getBoundingClientRect();
+      const moved = Math.hypot(start.left - end.left, start.top - end.top) > 8;
+      button.focus();
+      await new Promise(resolve => setTimeout(resolve, 100));
+      const held = button.getBoundingClientRect();
+      await new Promise(resolve => setTimeout(resolve, 460));
+      const paused = button.getBoundingClientRect();
+      const focusPaused = Math.hypot(held.left - paused.left, held.top - paused.top) < 1;
+      button.blur();
+      const resumeAt = button.getBoundingClientRect();
+      let resumed = false;
+      for (let i = 0; i < 16 && !resumed; i++) {
+        await new Promise(resolve => setTimeout(resolve, 220));
+        const now = button.getBoundingClientRect();
+        resumed = Math.hypot(resumeAt.left - now.left, resumeAt.top - now.top) > 8;
+      }
+      return { moved, withinViewport, focusPaused, resumed,
+        hovered: dock.matches(':hover'), focused: dock.matches(':focus-within'), visibility: document.visibilityState };
+    })()`);
+    console.log(`${viewport.name} mascot roaming: ${JSON.stringify(roaming)}`);
+    assert.equal(roaming.moved, true, `${viewport.name}: mascot did not travel between screen positions`);
+    assert.equal(roaming.withinViewport, true, `${viewport.name}: roaming mascot crossed viewport bounds`);
+    assert.equal(roaming.focusPaused, true, `${viewport.name}: mascot did not pause during keyboard focus`);
+    assert.equal(roaming.resumed, true, `${viewport.name}: mascot did not resume after focus`);
     await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+    await evaluate(`document.querySelector('.mascot-action')?.click()`);
+    await waitFor(() => evaluate(`!!document.querySelector('.mascot-message')`), 3000);
     const mascotCollision = await evaluate(`(() => {
       const button = document.querySelector('.mascot-action');
       const bubble = document.querySelector('.mascot-message');
@@ -199,28 +242,18 @@ try {
       const overlaps = (left, right) => left && right && left.left < right.right && left.right > right.left && left.top < right.bottom && left.bottom > right.top;
       const blocked = [button, bubble].flatMap(element => controls.filter(control =>
         overlaps(element?.getBoundingClientRect(), control.getBoundingClientRect())).map(control => control.className || control.ariaLabel));
-      const heading = document.querySelector('.section-heading h1');
-      const headingArea = document.querySelector('.section-heading');
-      const status = document.querySelector('.update-indicator');
-      const spotlight = document.querySelector('.spotlight');
       return {
         blocked,
         messageInsideViewport: !!bubble && bubble.getBoundingClientRect().left >= 0 && bubble.getBoundingClientRect().right <= innerWidth + 1,
-        messageCoversHeading: overlaps(bubble?.getBoundingClientRect(), heading?.getBoundingClientRect()),
-        messageCoversStatus: overlaps(bubble?.getBoundingClientRect(), status?.getBoundingClientRect()),
-        messageCoversSpotlight: overlaps(bubble?.getBoundingClientRect(), spotlight?.getBoundingClientRect()),
-        messageFitsHeadingArea: !!bubble && !!headingArea && bubble.getBoundingClientRect().bottom <= headingArea.getBoundingClientRect().bottom + 1,
+        dockFixed: getComputedStyle(document.querySelector('.mascot-dock')).position === 'fixed',
       };
     })()`);
     assert.deepEqual(mascotCollision.blocked, [], `${viewport.name}: mascot or message hides a spotlight control`);
     assert.equal(mascotCollision.messageInsideViewport, true, `${viewport.name}: mascot speech bubble leaves viewport`);
-    assert.equal(mascotCollision.messageCoversHeading, false, `${viewport.name}: mascot message covers MATCHDAY heading`);
-    assert.equal(mascotCollision.messageCoversStatus, false, `${viewport.name}: mascot message covers live-data status`);
-    assert.equal(mascotCollision.messageCoversSpotlight, false, `${viewport.name}: mascot message covers featured match`);
-    assert.equal(mascotCollision.messageFitsHeadingArea, true, `${viewport.name}: mascot message escapes heading area`);
+    assert.equal(mascotCollision.dockFixed, true, `${viewport.name}: mascot lost fixed position`);
     await capture(`${viewport.name}-mascot.png`);
     screenshots.push(`${viewport.name}-mascot.png`);
-    checks.push({ viewport: viewport.name, mascot, activeMotion, mascotCollision });
+    checks.push({ viewport: viewport.name, mascot, activeMotion, roaming, mascotCollision });
     const pendingNotice = await evaluate('(() => { const el = document.querySelector(".results-area .source-notice[role=status]"); return { text: el?.textContent?.trim() ?? "", official: [...(el?.querySelectorAll("a") ?? [])].some(a => a.href.startsWith("https://vpf.vn/")) }; })()');
     assert.equal(Boolean(pendingNotice.text), pendingVietnam.length > 0,
       `${viewport.name}: all-competitions V.League data notice differs from API`);
