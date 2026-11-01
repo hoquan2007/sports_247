@@ -671,7 +671,7 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
               <div><span className="matchday-heading-kicker">Cùng nhịp bóng đá</span><h1>Match<span>day.</span></h1></div>
               <div className="update-indicator">
                 <span className={`status-orb ${totals.live > 0 ? "pulsing" : ""}`} />
-                {feed.partial ? "Một số nguồn đang gián đoạn" : "Kết nối dữ liệu"}
+                Tỷ số &amp; lịch thi đấu
                 <span className="update-stamp">Cập nhật lúc {timeOf(feed.updatedAt)}</span>
               </div>
             </div>
@@ -737,17 +737,6 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
                 </label>
               </div>
               {favoritesOnly && <div className="filter-notice"><Heart size={15} /> Chỉ hiển thị trận yêu thích <button onClick={() => setFavoritesOnly(false)}>Bỏ lọc <X size={14} /></button></div>}
-              {error && <div className="error-notice"><Info size={17} />Không thể cập nhật dữ liệu ({error}). Đang giữ kết quả cuối cùng.</div>}
-              {feed.partial && <div className="source-notice"><Info size={17} />Một số nguồn đang gián đoạn. Các trận chưa cập nhật có thể hiển thị tỷ số từ lần tải trước.</div>}
-              {league === "all" && feed.pendingLeagues?.some(isVietnamLeague) &&
-                <div className="source-notice" role="status"><Info size={17} />
-                  Chưa có dữ liệu lịch và tỷ số đầy đủ cho {VIETNAM_LEAGUES.filter((item) => feed.pendingLeagues?.includes(item.id)).map((item) => item.name).join(" và ")}. Logo giải đã hiển thị, nhưng các trận có thể chưa xuất hiện.
-                  <a href="https://vpf.vn/mobile/" target="_blank" rel="noopener noreferrer">Xem lịch chính thức trên VPF <ExternalLink size={14} /></a>
-                </div>}
-              {isVietnamLeague(league) && feed.pendingLeagues?.includes(league) &&
-                <div className="source-notice"><Info size={17} />{feed.failedLeagues?.includes(league) ? "Nguồn dữ liệu tạm thời gặp lỗi: " : "Chưa kết nối API dữ liệu "}{league === "vie.1" ? "V.League 1" : "V.League 2"}.
-                  <a href="https://vpf.vn/mobile/" target="_blank" rel="noopener noreferrer">Xem lịch chính thức trên VPF <ExternalLink size={14} /></a>
-                </div>}
               {loading && <><div className="loading-line"><span /></div><BallLoading /></>}
               <div className="results-list">
                 {leagueGroups.length ? leagueGroups.map(([leagueId, matches]) => {
@@ -769,7 +758,7 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
                 }) : (
                   <div className="empty-results">
                     {loading ? <RefreshCw size={26} className="spinning" /> : <CalendarDays size={28} />}
-                    <strong>{loading ? "Đang tải trận đấu..." : feed.partial && !games.length && (league === "all" || feed.failedLeagues?.includes(league)) ? "Chưa thể lấy lịch thi đấu" : "Không tìm thấy trận đấu"}</strong>
+                    <strong>{loading ? "Đang tải trận đấu..." : !games.length && (error || (feed.partial && (league === "all" || feed.failedLeagues?.includes(league)))) ? "Chưa thể lấy lịch thi đấu" : "Không tìm thấy trận đấu"}</strong>
                     <p>{loading ? "Đang đồng bộ dữ liệu từ các giải." : "Hãy chọn ngày khác hoặc thay đổi bộ lọc để xem thêm trận."}</p>
                     {!loading && <button onClick={resetFilters}>Xóa bộ lọc <ArrowUpRight size={16} /></button>}
                   </div>

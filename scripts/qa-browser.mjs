@@ -298,17 +298,10 @@ try {
     await capture(`${viewport.name}-mascot.png`);
     screenshots.push(`${viewport.name}-mascot.png`);
     checks.push({ viewport: viewport.name, mascot, activeMotion, roaming, mascotCollision });
-    const pendingNotice = await evaluate('(() => { const el = document.querySelector(".results-area .source-notice[role=status]"); return { text: el?.textContent?.trim() ?? "", official: [...(el?.querySelectorAll("a") ?? [])].some(a => a.href.startsWith("https://vpf.vn/")) }; })()');
-    assert.equal(Boolean(pendingNotice.text), pendingVietnam.length > 0,
-      `${viewport.name}: all-competitions V.League data notice differs from API`);
-    if (pendingVietnam.length) {
-      assert.equal(pendingNotice.official, true, `${viewport.name}: no official fixture link`);
-      for (const division of pendingVietnam) {
-        assert.ok(pendingNotice.text.includes(division.name),
-          `${viewport.name}: missing data notice for ${division.name}`);
-      }
-    }
-    checks.push({ viewport: viewport.name, pendingVietnam: pendingVietnam.map((item) => item.id), officialLink: pendingNotice.official });
+    const notices = await evaluate('(() => ({ banners: document.querySelectorAll(".results-area .source-notice, .results-area .error-notice").length, official: [...document.querySelectorAll("#competitions .watch-guide")].some(a => a.href.startsWith("https://vpf.vn/")) }))()');
+    assert.equal(notices.banners, 0, `${viewport.name}: data diagnostics must not appear as frontend banners`);
+    assert.equal(notices.official, true, `${viewport.name}: VPF reference link is unavailable`);
+    checks.push({ viewport: viewport.name, pendingVietnam: pendingVietnam.map((item) => item.id), officialLink: notices.official, diagnosticBanners: notices.banners });
     await capture(`${viewport.name}.png`);
     screenshots.push(`${viewport.name}.png`);
     checks.push(before);
@@ -359,9 +352,9 @@ try {
       } catch {
         throw new Error(`${viewport.name}: selecting ${division.name} did not update active competition`);
       }
-      const individualNotice = await evaluate('([...document.querySelectorAll(".results-area .source-notice")].find(el => [...el.querySelectorAll("a")].some(a => a.href.startsWith("https://vpf.vn/")))?.textContent ?? "")');
-      assert.ok(individualNotice.includes(division.name),
-        `${viewport.name}: missing selected-competition notice for ${division.name}`);
+      const individualBanners = await evaluate('document.querySelectorAll(".results-area .source-notice, .results-area .error-notice").length');
+      assert.equal(individualBanners, 0,
+        `${viewport.name}: selecting ${division.name} must not show data diagnostics`);
     }
     if (pendingVietnam.length) {
       await evaluate('document.querySelector(".brand-wordmark")?.click()');

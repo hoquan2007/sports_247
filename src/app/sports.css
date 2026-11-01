@@ -177,10 +177,8 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .search-control:focus-within { outline: 2px solid var(--lime-strong); outline-offset: 1px; }
 .search-control input:focus-visible { outline: 0; }
 .search-control input::placeholder { color: var(--ink-muted); }
-.filter-notice, .error-notice, .source-notice { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: 12px; color: var(--ink-soft); margin-bottom: 12px; background: var(--lime-faint); }
+.filter-notice { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: 12px; color: var(--ink-soft); margin-bottom: 12px; background: var(--lime-faint); }
 .filter-notice button { background: transparent; border: 0; color: var(--forest); font-weight: 750; margin-left: auto; display: inline-flex; align-items: center; gap: 4px; }
-.error-notice { background: var(--red-bg); border-color: var(--tone-23); color: var(--tone-24); }
-.source-notice { background: var(--warning-bg); }
 .loading-line { height: 3px; background: var(--line); border-radius: 3px; margin-bottom: 12px; overflow: hidden; }
 .loading-line span { display: block; height: 100%; width: 35%; background: var(--forest); animation: loader 1.5s ease-in-out infinite alternate; }
 .results-list { display: grid; gap: 16px; }
