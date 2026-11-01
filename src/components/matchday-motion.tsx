@@ -95,6 +95,28 @@ export function MatchdayMascot({ event }: { event: GoalEvent | null }) {
   const roamRef = useRef<gsap.core.Timeline | null>(null);
   const busyRef = useRef(false);
 
+  const syncCompact = useCallback(() => {
+    const dock = dockRef.current;
+    if (!dock) return;
+    if (window.innerWidth > 690) {
+      dock.dataset.compact = "false";
+      return;
+    }
+
+    // Use the unscaled dock bounds to avoid the compact state flickering as the
+    // mascot shrinks. The companion can still travel and receive a tap.
+    const mascot = dock.getBoundingClientRect();
+    const important = document.querySelectorAll<HTMLElement>(
+      ".date-panel, .stats-strip, .results-heading, .results-toolbar, .spotlight-score, .spotlight-open, .spotlight-controls",
+    );
+    const nearContent = Array.from(important).some((element) => {
+      const area = element.getBoundingClientRect();
+      return mascot.left < area.right + 6 && mascot.right > area.left - 6 &&
+        mascot.top < area.bottom + 6 && mascot.bottom > area.top - 6;
+    });
+    dock.dataset.compact = String(nearContent);
+  }, []);
+
   const syncRoaming = useCallback(() => {
     const dock = dockRef.current;
     const timeline = roamRef.current;
@@ -118,6 +140,7 @@ export function MatchdayMascot({ event }: { event: GoalEvent | null }) {
       dock.dataset.walking = "false";
       dock.dataset.side = "right";
       gsap.set(dock, { x: 0, y: 0 });
+      syncCompact();
       if (motionPreference.matches) return;
 
       const margin = 14;
@@ -153,6 +176,7 @@ export function MatchdayMascot({ event }: { event: GoalEvent | null }) {
             if (dock.dataset.walking !== "true") dock.dataset.walking = "true";
             const side = Number(gsap.getProperty(dock, "x")) < -travelX / 2 ? "left" : "right";
             if (dock.dataset.side !== side) dock.dataset.side = side;
+            syncCompact();
           },
           onComplete: () => { dock.dataset.walking = "false"; },
         }, "+=1.1");
@@ -174,17 +198,19 @@ export function MatchdayMascot({ event }: { event: GoalEvent | null }) {
     buildRoute();
     onVisibility();
     window.addEventListener("resize", onResize);
+    window.addEventListener("scroll", syncCompact, { passive: true });
     document.addEventListener("visibilitychange", onVisibility);
     motionPreference.addEventListener("change", buildRoute);
     return () => {
       window.cancelAnimationFrame(resizeFrame);
       window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", syncCompact);
       document.removeEventListener("visibilitychange", onVisibility);
       motionPreference.removeEventListener("change", buildRoute);
       roamRef.current?.kill();
       roamRef.current = null;
     };
-  }, { scope: dockRef, dependencies: [syncRoaming] });
+  }, { scope: dockRef, dependencies: [syncRoaming, syncCompact] });
 
   useEffect(() => {
     busyRef.current = playing || celebrating;
@@ -210,7 +236,7 @@ export function MatchdayMascot({ event }: { event: GoalEvent | null }) {
   const shortMessages = { wave: "Xin chào!", kick: "Sút bóng!", dance: "Quẩy nào!" };
 
   return (
-    <div ref={dockRef} className={`mascot-dock ${celebrating ? "is-celebrating" : ""} ${playing ? "is-playing" : ""}`} data-move={move} data-walking="false" data-side="right">
+    <div ref={dockRef} className={`mascot-dock ${celebrating ? "is-celebrating" : ""} ${playing ? "is-playing" : ""}`} data-move={move} data-walking="false" data-side="right" data-compact="false">
       {(celebrating && event || playing) && (
         <div className="mascot-message" role="status" aria-live="polite">
           <span className="mascot-message-full">{celebrating && event ? <><strong>VÀO!!!</strong> {event.teamName} · {event.score}</> : <><strong>Bóng Bự:</strong> {messages[move]}</>}</span>

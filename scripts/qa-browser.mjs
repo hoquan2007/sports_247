@@ -128,6 +128,7 @@ try {
     { name: 'mobile', width: 390, height: 844, mobile: true },
     { name: 'compact', width: 320, height: 740, mobile: true },
   ]) {
+    console.log(`Checking ${viewport.name} (${viewport.width}px)`);
     await send('Emulation.setDeviceMetricsOverride', { width: viewport.width, height: viewport.height, deviceScaleFactor: 1, mobile: viewport.mobile });
     await send('Page.navigate', { url: base });
     await waitFor(() => evaluate(`document.readyState === 'complete' && !!document.querySelector('.app-shell')`), 30000);
@@ -140,6 +141,20 @@ try {
         return (img && img.complete && img.naturalWidth > 0) || el.querySelector('.league-badge-fallback');
       });
     })()`), 45000);
+    // Local production builds can hydrate after static logos finish loading.
+    try {
+      await waitFor(() => evaluate(`!document.querySelector('.matchday-intro')`), 20000);
+    } catch (error) {
+      const state = await evaluate(`(() => ({
+        readyState: document.readyState,
+        intro: !!document.querySelector('.matchday-intro'),
+        introDisplay: document.querySelector('.matchday-intro') && getComputedStyle(document.querySelector('.matchday-intro')).display,
+        reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+        scripts: [...document.scripts].filter(script => script.src).length,
+        title: document.title,
+      }))()`);
+      throw new Error(`${viewport.name}: intro did not unmount (${JSON.stringify(state)}): ${error.message}`);
+    }
     const before = await inspect(viewport.name);
     console.log(`${viewport.name} browser diagnostics: ${JSON.stringify(before)}`);
     assert.ok(before.hasSpotlight, `${viewport.name}: no spotlight`);
@@ -162,6 +177,21 @@ try {
     }
     assert.ok(before.pageWidth <= before.viewportWidth + 2, `${viewport.name}: horizontal overflow ${before.pageWidth}px`);
     assert.equal(before.introVisible, false, `${viewport.name}: intro overlay did not disappear`);
+    const dateLayout = await evaluate(`(() => {
+      const tabs = [...document.querySelectorAll('.date-tab')].filter(tab => getComputedStyle(tab).display !== 'none');
+      const selected = tabs.filter(tab => tab.classList.contains('selected'));
+      const widths = tabs.map(tab => Math.round(tab.getBoundingClientRect().width));
+      return { visible: tabs.length, selectedVisible: selected.length === 1,
+        selectedCentered: tabs[Math.floor(tabs.length / 2)] === selected[0],
+        minimumWidth: Math.min(...widths), widths };
+    })()`);
+    assert.equal(dateLayout.visible, viewport.width <= 360 ? 3 : viewport.width <= 480 ? 5 : 7,
+      `${viewport.name}: date picker has cramped or missing days`);
+    assert.equal(dateLayout.selectedVisible && dateLayout.selectedCentered, true,
+      `${viewport.name}: selected day is not centered in the date picker`);
+    if (viewport.width <= 480) assert.ok(dateLayout.minimumWidth >= 44,
+      `${viewport.name}: date buttons are too narrow to tap (${dateLayout.minimumWidth}px)`);
+    checks.push({ viewport: viewport.name, dateLayout });
     const mascot = await evaluate(`(() => {
       const button = document.querySelector('.mascot-action');
       const dock = document.querySelector('.mascot-dock');
@@ -179,6 +209,20 @@ try {
     assert.equal(mascot.fixed, true, `${viewport.name}: mascot must follow viewport when scrolling`);
     assert.equal(mascot.reducedMotionStopped, true, `${viewport.name}: reduced-motion preference ignored`);
     assert.equal(mascot.roamingStopped, true, `${viewport.name}: roaming continues under reduced motion`);
+    const compactMascot = await evaluate(`(() => {
+      const dock = document.querySelector('.mascot-dock');
+      const rect = dock.getBoundingClientRect();
+      const selectors = '.date-panel, .stats-strip, .results-heading, .results-toolbar, .spotlight-score, .spotlight-open, .spotlight-controls';
+      const nearContent = [...document.querySelectorAll(selectors)].some(element => {
+        const area = element.getBoundingClientRect();
+        return rect.left < area.right + 6 && rect.right > area.left - 6 &&
+          rect.top < area.bottom + 6 && rect.bottom > area.top - 6;
+      });
+      return { nearContent, compact: dock.dataset.compact === 'true' };
+    })()`);
+    if (viewport.width <= 690) assert.equal(compactMascot.compact, compactMascot.nearContent,
+      `${viewport.name}: mascot does not reduce its footprint over important content`);
+    checks.push({ viewport: viewport.name, compactMascot });
     for (const move of ['wave', 'kick', 'dance']) {
       await evaluate(`document.querySelector('.mascot-action')?.click()`);
       await waitFor(() => evaluate(`document.querySelector('.mascot-dock.is-playing')?.dataset.move === '${move}'`), 8000);

@@ -695,11 +695,24 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
             <button className="today-link" onClick={goToday}>Về hôm nay <ArrowUpRight size={14} /></button>
           </div>
 
-          <div className="stats-strip">
-            <div className="stat-box"><span>Tất cả trận</span><strong className="mono">{totals.total.toString().padStart(2, "0")}</strong><small>trong ngày</small></div>
-            <div className="stat-box"><span>Trực tiếp</span><strong className="mono">{totals.live.toString().padStart(2, "0")}</strong><small>đang diễn ra</small></div>
-            <div className="stat-box"><span>Sắp diễn ra</span><strong className="mono">{totals.upcoming.toString().padStart(2, "0")}</strong><small>chưa bắt đầu</small></div>
-            <div className="stat-box"><span>Kết quả</span><strong className="mono">{totals.finished.toString().padStart(2, "0")}</strong><small>đã kết thúc</small></div>
+          <div className="stats-strip" role="group" aria-label="Thống kê và lọc trận đấu">
+            {([
+              { id: "all", label: "Tất cả trận", count: totals.total, detail: "trong ngày" },
+              { id: "live", label: "Trực tiếp", count: totals.live, detail: "đang diễn ra" },
+              { id: "scheduled", label: "Sắp diễn ra", count: totals.upcoming, detail: "chưa bắt đầu" },
+              { id: "finished", label: "Kết quả", count: totals.finished, detail: "đã kết thúc" },
+            ] as const).map(({ id, label, count, detail }) => (
+              <button
+                key={id}
+                type="button"
+                className={`stat-box stat-box--${id}${status === id ? " is-selected" : ""}`}
+                aria-pressed={status === id}
+                onClick={() => setStatus(id)}
+              >
+                <span className="stat-box-label"><span className={`stat-box-pip${id === "live" && count > 0 ? " is-live" : ""}`} aria-hidden="true" />{label}</span>
+                <span className="stat-box-reading"><strong className="stat-box-number mono">{count.toString().padStart(2, "0")}</strong><small>{detail}</small></span>
+              </button>
+            ))}
           </div>
 
           <div className="content-grid">
