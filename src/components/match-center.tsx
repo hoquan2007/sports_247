@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useGSAP } from "@gsap/react";
+import { Button as AnimatedButton } from "@animate-ui/react/primitives/buttons/button";
+import { Fade } from "@animate-ui/react/primitives/effects/fade";
+import { Highlight, HighlightItem } from "@animate-ui/react/primitives/effects/highlight";
+import { SlidingNumber } from "@animate-ui/react/primitives/texts/sliding-number";
 import gsap from "gsap";
 import {
   Activity, ArrowUpRight, CalendarDays, Check, ChevronLeft, ChevronRight,
@@ -45,13 +49,14 @@ function labelForStatus(status: MatchStatus) {
     : status === "interrupted" ? "Gián đoạn" : status === "awarded" ? "Kết quả hành chính" : "Chưa bắt đầu";
 }
 
-function TeamBadge({ team, size = 32 }: { team: FootballTeam; size?: number }) {
+function TeamBadge({ team, size = 32, eager = false }: { team: FootballTeam; size?: number; eager?: boolean }) {
   const [brokenUrl, setBrokenUrl] = useState<string | null>(null);
   const bad = brokenUrl === team.logo;
   return (
     <span className="team-badge" style={{ width: size, height: size }} aria-hidden="true">
       {team.logo && !bad ? (
         <Image src={team.logo} alt="" width={size} height={size} unoptimized
+          loading={eager ? "eager" : "lazy"} fetchPriority={eager ? "high" : "low"}
           onError={() => setBrokenUrl(team.logo)} className="team-image" />
       ) : (
         <span className="team-initials">{team.shortName.slice(0, 2).toUpperCase()}</span>
@@ -69,7 +74,8 @@ function MatchRow({ match, saved, onSave, onOpen }: {
 }) {
   return (
     <div className={`match-row ${match.status === "live" ? "is-live" : ""}`}>
-      <button className="match-open" onClick={onOpen} aria-label={`Xem chi tiết ${match.home.name} - ${match.away.name}`}>
+      <button className="match-open" onClick={onOpen}>
+        <span className="sr-only">Xem chi tiết trận đấu:</span>
         <div className="match-clock">
           {match.status === "live" ? <span className="match-minute">{match.statusDetail}</span> : (
             <span className="mono">{match.status === "finished" ? "FT" : match.status === "scheduled"
@@ -82,18 +88,19 @@ function MatchRow({ match, saved, onSave, onOpen }: {
           <div className="match-team"><TeamBadge team={match.away} size={27} /><span>{match.away.name}</span></div>
         </div>
         <div className={`match-scores ${match.status === "live" ? "scores-live" : ""}`}>
-          <span>{match.homeScore ?? "–"}</span><span>{match.awayScore ?? "–"}</span>
+          <span>{typeof match.homeScore !== "number" ? "–" : match.status === "live" ? <SlidingNumber number={match.homeScore} initiallyStable /> : match.homeScore}</span>
+          <span>{typeof match.awayScore !== "number" ? "–" : match.status === "live" ? <SlidingNumber number={match.awayScore} initiallyStable /> : match.awayScore}</span>
         </div>
         <div className="match-broadcast" title={match.broadcasters[0] ? `Kênh theo nguồn: ${match.broadcasters[0]}` : "Nguồn chưa cung cấp kênh phát sóng"}>
           {match.broadcasters[0] ? `Kênh: ${match.broadcasters[0]}` : "Kênh chưa công bố"}
         </div>
         <ChevronRight className="row-chevron" size={16} />
       </button>
-      <button className={`save-button ${saved ? "saved" : ""}`}
+      <AnimatedButton type="button" tapScale={0.86} hoverScale={1.07} className={`save-button ${saved ? "saved" : ""}`}
         onClick={onSave} aria-label={saved ? "Bỏ lưu trận đấu" : "Lưu trận đấu"}
         title={saved ? "Bỏ yêu thích" : "Thêm yêu thích"}>
         <Star size={18} fill={saved ? "currentColor" : "none"} />
-      </button>
+      </AnimatedButton>
     </div>
   );
 }
@@ -470,7 +477,7 @@ function MatchSpotlight({ matches, onOpen }: { matches: FootballMatch[]; onOpen:
       </div>
       <div className="spotlight-body" aria-live="off">
         <div className="spotlight-club">
-          <div className="spotlight-crest"><TeamBadge team={active.home} size={104} /></div>
+          <div className="spotlight-crest"><TeamBadge team={active.home} size={104} eager /></div>
           <strong>{active.home.name}</strong><span>Chủ nhà</span>
         </div>
         <div className="spotlight-center">
@@ -484,13 +491,13 @@ function MatchSpotlight({ matches, onOpen }: { matches: FootballMatch[]; onOpen:
           <button className="spotlight-open" onClick={() => onOpen(active)}>Chi tiết trận đấu <ArrowUpRight size={16} /></button>
         </div>
         <div className="spotlight-club">
-          <div className="spotlight-crest"><TeamBadge team={active.away} size={104} /></div>
+          <div className="spotlight-crest"><TeamBadge team={active.away} size={104} eager /></div>
           <strong>{active.away.name}</strong><span>Đội khách</span>
         </div>
       </div>
       <div className="spotlight-bottom">
         <span className="spotlight-location"><MapPin size={14} /> {active.venue ?? "Địa điểm chưa công bố"}</span>
-        <div className="spotlight-controls" aria-label="Chuyển trận nổi bật">
+        <div className="spotlight-controls" role="group" aria-label="Chuyển trận nổi bật">
           <button aria-label="Trận trước" onClick={() => move(-1)}><ChevronLeft size={19} /></button>
           <span className="spotlight-count mono">{String((index % prioritized.length) + 1).padStart(2, "0")} / {String(prioritized.length).padStart(2, "0")}</span>
           <button aria-label="Trận tiếp theo" onClick={() => move(1)}><ChevronRight size={19} /></button>
@@ -512,6 +519,7 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [focusedMatch, setFocusedMatch] = useState<FootballMatch | null>(null);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const firstLoad = useRef(true);
   const [clockNow, setClockNow] = useState<Date | null>(null);
@@ -520,6 +528,13 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
   const latestFeedRef = useRef<MatchFeed>(initialFeed);
   const activeDateRef = useRef(initialFeed.date);
   const latestRequestRef = useRef(0);
+  const activeRequestRef = useRef<AbortController | null>(null);
+  const cancelActiveRequest = useCallback(() => {
+    const controller = activeRequestRef.current;
+    activeRequestRef.current = null;
+    latestRequestRef.current++;
+    controller?.abort();
+  }, []);
 
   useEffect(() => {
     if (!goalEvent) return;
@@ -550,14 +565,20 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
     return () => window.clearInterval(timer);
   }, []);
 
-  const retrieve = useCallback(async (date: string, signal: AbortSignal, silent: boolean) => {
+  const retrieve = useCallback(async (date: string, silent: boolean) => {
+    // Polls never compete with an in-flight request; explicit refreshes replace it.
+    if (silent && activeRequestRef.current) return;
+    activeRequestRef.current?.abort();
+    const controller = new AbortController();
+    activeRequestRef.current = controller;
     const requestId = ++latestRequestRef.current;
+    setRefreshing(true);
     if (!silent) setLoading(true);
     try {
-      const response = await fetch(`/api/matches?date=${encodeURIComponent(date)}`, { signal, cache: "no-store" });
+      const response = await fetch(`/api/matches?date=${encodeURIComponent(date)}`, { signal: controller.signal, cache: "no-store" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json() as MatchFeed;
-      if (!signal.aborted && requestId === latestRequestRef.current && date === activeDateRef.current && data.date === date) {
+      if (!controller.signal.aborted && requestId === latestRequestRef.current && date === activeDateRef.current && data.date === date) {
         if (previousSnapshot.current.date === data.date && data.date === date && previousSnapshot.current.complete && !data.partial) {
           const goal = detectGoalEvent(previousSnapshot.current.matches, data.matches);
           if (goal) setGoalEvent(goal);
@@ -568,22 +589,46 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
         setFeed(merged); setError(null);
       }
     } catch (cause) {
-      if (!signal.aborted && requestId === latestRequestRef.current && date === activeDateRef.current)
+      if (!controller.signal.aborted && requestId === latestRequestRef.current && date === activeDateRef.current)
         setError(cause instanceof Error ? cause.message : "Không thể cập nhật dữ liệu");
     } finally {
-      if (!signal.aborted && requestId === latestRequestRef.current) setLoading(false);
+      if (activeRequestRef.current === controller) {
+        activeRequestRef.current = null;
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
     if (firstLoad.current) firstLoad.current = false;
-    else void retrieve(selectedDate, controller.signal, false);
+    else void retrieve(selectedDate, false);
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void retrieve(selectedDate, controller.signal, true);
+      if (document.visibilityState === "visible") void retrieve(selectedDate, true);
     }, 90000);
-    return () => { controller.abort(); window.clearInterval(timer); };
-  }, [selectedDate, retrieve]);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void retrieve(selectedDate, true);
+    };
+    const onOnline = () => {
+      if (document.visibilityState === "visible") void retrieve(selectedDate, true);
+    };
+    const onOffline = () => {
+      cancelActiveRequest();
+      setLoading(false);
+      setRefreshing(false);
+      setError("Mất kết nối mạng");
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+      cancelActiveRequest();
+    };
+  }, [selectedDate, retrieve, cancelActiveRequest]);
 
   const toggleFavorite = (id: string) => {
     setFavorites((old) => {
@@ -619,6 +664,11 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
 
   const dateTabs = Array.from({ length: 7 }, (_, i) => shiftDate(selectedDate, i - 3));
   const chooseDate = (day: string) => {
+    if (day === selectedDate) {
+      setStatus("all"); setError(null); setGoalEvent(null);
+      void retrieve(day, false);
+      return;
+    }
     activeDateRef.current = day;
     latestRequestRef.current++;
     setSelectedDate(day); setStatus("all"); setError(null); setGoalEvent(null);
@@ -641,17 +691,14 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
             <a className="nav-link" href="#competitions">Giải đấu</a>
           </nav>
           <div className="header-actions">
-            <button className={favoritesOnly ? "favorites-link active" : "favorites-link"} onClick={() => setFavoritesOnly((current) => !current)} aria-pressed={favoritesOnly}><Heart size={17} fill={favoritesOnly ? "currentColor" : "none"} /> <span>Đã lưu</span></button>
+            <button className={favoritesOnly ? "favorites-link active" : "favorites-link"} onClick={() => setFavoritesOnly((current) => !current)} aria-label="Chỉ hiển thị trận đã lưu" aria-pressed={favoritesOnly}><Heart size={17} fill={favoritesOnly ? "currentColor" : "none"} /> <span>Đã lưu</span></button>
             <span className="clock-label"><Clock3 size={14} /> {clockNow ? timeOf(clockNow.toISOString()) : "--:--"} <span>GMT+7</span></span>
             <span className="header-separator" />
-            <button className="header-refresh" onClick={() => {
-              const controller = new AbortController();
-              void retrieve(selectedDate, controller.signal, false);
-            }} aria-label="Làm mới tỷ số" title="Làm mới dữ liệu"><RefreshCw size={17} className={loading ? "spinning" : ""} /></button>
+            <button className="header-refresh" onClick={() => void retrieve(selectedDate, false)} aria-label="Làm mới tỷ số" title="Làm mới dữ liệu" aria-busy={refreshing}><RefreshCw size={17} className={refreshing ? "spinning" : ""} /></button>
           </div>
         </header>
 
-        <div className="score-ticker" aria-label="Tỷ số nhanh">
+        <div className="score-ticker" role="group" aria-label="Tỷ số nhanh">
           <div className="ticker-label"><Radio size={15} /><strong>MATCH<br />CENTER</strong></div>
           <div className="ticker-events">
             {games.length ? <div className="ticker-track">
@@ -669,10 +716,11 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
           <div className="section-heading">
             <div className="matchday-heading-copy">
               <div><span className="matchday-heading-kicker">Cùng nhịp bóng đá</span><h1>Match<span>day.</span></h1></div>
-              <div className="update-indicator">
-                <span className={`status-orb ${totals.live > 0 ? "pulsing" : ""}`} />
-                Tỷ số &amp; lịch thi đấu
-                <span className="update-stamp">Cập nhật lúc {timeOf(feed.updatedAt)}</span>
+              <div className={`update-indicator${error ? " update-indicator--error" : ""}`} role="status" aria-live="polite">
+                <span className={`status-orb ${totals.live > 0 && !error ? "pulsing" : ""}`} />
+                <span>{error ? "Cập nhật gián đoạn" : "Tỷ số & lịch thi đấu"}</span>
+                <span className="update-stamp">{error ? (feed.date === selectedDate ? `Dữ liệu gần nhất lúc ${timeOf(feed.updatedAt)}` : "Chưa có dữ liệu ngày này") : feed.date === selectedDate ? `Cập nhật lúc ${timeOf(feed.updatedAt)}` : "Đang tải lịch ngày đã chọn"}</span>
+                {error && <button className="update-retry" type="button" onClick={() => void retrieve(selectedDate, false)}>Thử lại</button>}
               </div>
             </div>
             <MatchdayMascot event={goalEvent} />
@@ -682,17 +730,17 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
 
           <div className="date-panel">
             <div className="date-panel-title"><CalendarDays size={17} /><span>Chọn ngày thi đấu</span></div>
-            <button className="date-arrow" aria-label="Ngày trước" onClick={() => chooseDate(shiftDate(selectedDate, -1))}><ChevronLeft size={20} /></button>
+            <AnimatedButton type="button" tapScale={0.9} className="date-arrow" aria-label="Ngày trước" onClick={() => chooseDate(shiftDate(selectedDate, -1))}><ChevronLeft size={20} /></AnimatedButton>
             <div className="date-tabs">
               {dateTabs.map((day) => (
-                <button key={day} className={`date-tab ${day === selectedDate ? "selected" : ""}`} onClick={() => chooseDate(day)}>
+                <AnimatedButton key={day} type="button" tapScale={0.96} className={`date-tab ${day === selectedDate ? "selected" : ""}`} aria-pressed={day === selectedDate} onClick={() => chooseDate(day)}>
                   <span>{day === today ? "Hôm nay" : dayLabel(day)}</span>
                   <strong className="mono">{day.slice(8, 10)}/{day.slice(5, 7)}</strong>
-                </button>
+                </AnimatedButton>
               ))}
             </div>
-            <button className="date-arrow" aria-label="Ngày tiếp theo" onClick={() => chooseDate(shiftDate(selectedDate, 1))}><ChevronRight size={20} /></button>
-            <button className="today-link" onClick={goToday}>Về hôm nay <ArrowUpRight size={14} /></button>
+            <AnimatedButton type="button" tapScale={0.9} className="date-arrow" aria-label="Ngày tiếp theo" onClick={() => chooseDate(shiftDate(selectedDate, 1))}><ChevronRight size={20} /></AnimatedButton>
+            <AnimatedButton type="button" tapScale={0.96} className="today-link" onClick={goToday}>Về hôm nay <ArrowUpRight size={14} /></AnimatedButton>
           </div>
 
           <div className="stats-strip" role="group" aria-label="Thống kê và lọc trận đấu">
@@ -710,7 +758,7 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
                 onClick={() => setStatus(id)}
               >
                 <span className="stat-box-label"><span className={`stat-box-pip${id === "live" && count > 0 ? " is-live" : ""}`} aria-hidden="true" />{label}</span>
-                <span className="stat-box-reading"><strong className="stat-box-number mono">{count.toString().padStart(2, "0")}</strong><small>{detail}</small></span>
+                <span className="stat-box-reading"><strong className="stat-box-number mono">{count < 10 && "0"}<SlidingNumber number={count} initiallyStable /></strong><small>{detail}</small></span>
               </button>
             ))}
           </div>
@@ -723,14 +771,20 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
               </div>
               <div className="results-toolbar">
                 <div className="status-filters" role="group" aria-label="Lọc trạng thái">
-                  {([
-                    ["all", "Tất cả"], ["live", "Trực tiếp"], ["scheduled", "Sắp diễn ra"], ["finished", "Kết thúc"],
-                  ] as const).map(([key, label]) => (
-                    <button key={key} className={status === key ? "status-tab chosen" : "status-tab"} onClick={() => setStatus(key)}>
-                      {key === "live" && <span className="live-dot" />}{label}
-                    </button>
-                  ))}
-                  {totals.awarded > 0 && <button className={status === "awarded" ? "status-tab chosen" : "status-tab"} onClick={() => setStatus("awarded")}>Xử lý hành chính ({totals.awarded})</button>}
+                  <Highlight mode="parent" controlledItems value={status} click={false} containerClassName="status-filter-track" className="status-filter-thumb">
+                    {([
+                      ["all", "Tất cả"], ["live", "Trực tiếp"], ["scheduled", "Sắp diễn ra"], ["finished", "Kết thúc"],
+                    ] as const).map(([key, label]) => (
+                      <HighlightItem key={key} value={key} asChild>
+                        <button type="button" className={status === key ? "status-tab chosen" : "status-tab"} aria-pressed={status === key} onClick={() => setStatus(key)}>
+                          {key === "live" && <span className="live-dot" />}{label}
+                        </button>
+                      </HighlightItem>
+                    ))}
+                    {totals.awarded > 0 && <HighlightItem value="awarded" asChild>
+                      <button type="button" className={status === "awarded" ? "status-tab chosen" : "status-tab"} aria-pressed={status === "awarded"} onClick={() => setStatus("awarded")}>Xử lý hành chính ({totals.awarded})</button>
+                    </HighlightItem>}
+                  </Highlight>
                 </div>
                 <label className="search-control"><Search size={17} />
                   <input type="search" placeholder="Tìm đội bóng, giải đấu..." value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Tìm trận đấu" />
@@ -742,18 +796,20 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
                 {leagueGroups.length ? leagueGroups.map(([leagueId, matches]) => {
                   const meta = DISPLAY_LEAGUES.find((item) => item.id === leagueId);
                   return (
-                    <div className="league-section" key={leagueId}>
-                      <div className="league-row-head">
-                        <LeagueBadge leagueId={leagueId} size={39} className="league-icon" />
-                        <div><h3>{meta?.name ?? matches[0].leagueName}</h3><small>{meta?.country ?? matches[0].leagueCountry}</small></div>
-                        <span className="league-rows-count">{matches.length} trận</span>
-                        <ChevronRight size={16} className="league-head-chevron" />
+                    <Fade asChild inView initialOpacity={0.92} key={leagueId}>
+                      <div className="league-section">
+                        <div className="league-row-head">
+                          <LeagueBadge leagueId={leagueId} size={39} className="league-icon" />
+                          <div><h3>{meta?.name ?? matches[0].leagueName}</h3><small>{meta?.country ?? matches[0].leagueCountry}</small></div>
+                          <span className="league-rows-count">{matches.length} trận</span>
+                          <ChevronRight size={16} className="league-head-chevron" />
+                        </div>
+                        {matches.map((match) => (
+                          <MatchRow key={match.id} match={match} onOpen={() => setFocusedMatch(match)}
+                            saved={favorites.includes(match.id)} onSave={() => toggleFavorite(match.id)} />
+                        ))}
                       </div>
-                      {matches.map((match) => (
-                        <MatchRow key={match.id} match={match} onOpen={() => setFocusedMatch(match)}
-                          saved={favorites.includes(match.id)} onSave={() => toggleFavorite(match.id)} />
-                      ))}
-                    </div>
+                    </Fade>
                   );
                 }) : (
                   <div className="empty-results">

@@ -6,6 +6,7 @@
   --ink: #f0f8e9;
   --ink-soft: #b1c7b7;
   --ink-muted: #91a79a;
+  --spotlight-secondary: #dcefe5;
   --forest: #d2f56d;
   --forest-dark: #07150f;
   --lime: #d2f56d;
@@ -56,6 +57,7 @@ body { background: var(--paper); color: var(--ink); }
 .nav-count { background: var(--red-bg); color: var(--red); }
 .favorites-link { background: var(--surface-hover); color: var(--ink); border-color: var(--line-strong); }
 .favorites-link:hover, .favorites-link.active { color: var(--lime); background: var(--lime-faint); }
+.competition-item.active > strong { color: var(--ink-soft); }
 .header-refresh { background: var(--lime); color: var(--dark-text); }
 .header-refresh:hover { background: var(--lime-strong); }
 .header-separator { background: var(--line-strong); }
@@ -86,8 +88,12 @@ body { background: var(--paper); color: var(--ink); }
 .section-heading h1 { margin: 3px 0 0; letter-spacing: -2px; line-height: 1; font-weight: 920; font-size: clamp(30px, 3.4vw, 43px); text-transform: uppercase; text-wrap: balance; }
 .section-heading h1 span { color: var(--lime); }
 .update-indicator { background: transparent; border-color: var(--line-strong); color: var(--ink-soft); padding: 7px 10px; }
-.update-stamp { color: var(--ink-muted); }
+.update-stamp { color: var(--ink-soft); }
 .status-orb { background: var(--lime); }
+.update-indicator--error { border-color: rgba(255, 174, 108, .45); color: #ffd3a9; }
+.update-indicator--error .status-orb { background: #ffae6c; }
+.update-retry { border: 1px solid rgba(255, 174, 108, .5); background: rgba(255, 174, 108, .11); color: #ffd3a9; border-radius: 7px; padding: 4px 8px; font: inherit; font-weight: 750; white-space: nowrap; }
+.update-retry:hover { background: rgba(255, 174, 108, .22); }
 
 /* Signature stadium. Purely decorative marks sit behind real provider crests. */
 .spotlight { min-width: 0; min-height: 280px; margin-bottom: 14px; position: relative; isolation: isolate; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 18px; background: var(--spotlight-wash); box-shadow: 0 25px 70px -35px var(--stadium-black); padding: 15px 24px 10px; }
@@ -101,7 +107,7 @@ body { background: var(--paper); color: var(--ink); }
 .spotlight-top, .spotlight-bottom { display: flex; justify-content: space-between; align-items: center; gap: 15px; position: relative; z-index: 1; }
 .spotlight-kicker { font-size: 11px; color: var(--lime); font-weight: 850; letter-spacing: normal; display: inline-flex; align-items: center; gap: 8px; }
 .spotlight-signal { width: 8px; height: 8px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 5px var(--red-bg); }
-.spotlight-competition, .spotlight-location { color: var(--ink-soft); font-size: 12px; }
+.spotlight-competition, .spotlight-location { color: var(--spotlight-secondary); font-size: 12px; }
 .spotlight-competition { text-align: right; }
 .spotlight-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(175px, .9fr) minmax(0, 1fr); align-items: center; gap: 10px; min-height: 201px; }
 .spotlight-club { display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 0; }
@@ -109,12 +115,12 @@ body { background: var(--paper); color: var(--ink); }
 .spotlight-crest .team-badge { width: 78px !important; height: 78px !important; }
 .spotlight-crest .team-image { object-fit: contain; filter: drop-shadow(0 4px 7px var(--stadium-black)); }
 .spotlight-club strong { max-width: 280px; margin-top: 4px; font-size: clamp(16px, 1.65vw, 21px); font-weight: 850; line-height: 1.2; overflow-wrap: break-word; }
-.spotlight-club > span { color: var(--ink-muted); font-size: 11px; margin-top: 6px; }
+.spotlight-club > span { color: var(--spotlight-secondary); font-size: 11px; margin-top: 6px; }
 .spotlight-center { display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 0; }
-.spotlight-status { padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: 999px; font-size: 11px; font-weight: 800; color: var(--lime); }
+.spotlight-status { padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: 999px; font-size: 11px; font-weight: 800; color: var(--lime-strong); }
 .spotlight-status.is-live { background: var(--red-bg); color: var(--red); border-color: var(--red); }
 .spotlight-score { font-size: clamp(42px, 4.8vw, 60px); line-height: 1.2; font-weight: 950; color: var(--ink); letter-spacing: -2px; white-space: nowrap; text-shadow: 0 8px 28px var(--stadium-black); animation: score-reveal .4s ease-out both; }
-.spotlight-date { font-size: 12px; color: var(--ink-soft); }
+.spotlight-date { font-size: 12px; color: var(--spotlight-secondary); }
 .spotlight-open { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; padding: 8px 14px; border: 1px solid var(--lime); border-radius: 999px; background: var(--lime); color: var(--dark-text); font-size: 12px; font-weight: 800; transition: transform .18s ease, background .18s ease; }
 .spotlight-open:hover { transform: translateY(-2px); background: var(--lime-strong); }
 .spotlight-bottom { border-top: 1px solid var(--line-strong); padding-top: 8px; }
@@ -126,7 +132,7 @@ body { background: var(--paper); color: var(--ink); }
 .spotlight-progress { height: 2px; background: var(--lime); position: absolute; bottom: 0; left: 0; width: 100%; transform-origin: left center; animation: spotlight-progress 6s linear both; }
 .spotlight-empty { display: flex; flex-direction: column; justify-content: center; }
 .spotlight-empty-content h2 { font-weight: 900; letter-spacing: -1.6px; font-size: clamp(27px, 3.5vw, 46px); margin: 12px 0 5px; }
-.spotlight-empty-content p { color: var(--ink-soft); }
+.spotlight-empty-content p { color: var(--spotlight-secondary); }
 
 /* Scores: preserve density while giving each provider crest an obvious role. */
 .date-panel { background: var(--white); color: var(--ink); border-color: var(--line-strong); box-shadow: none; padding: 6px 10px; }
@@ -156,12 +162,20 @@ body { background: var(--paper); color: var(--ink); }
 .workspace .stat-box--live .stat-box-number { color: var(--red); }
 .workspace .stat-box .stat-box-reading small { display: inline; color: var(--ink-muted); font-size: 12px; font-weight: 500; line-height: 1.25; }
 .results-heading { margin-bottom: 12px; }
+.results-heading .eyebrow { color: var(--ink-muted); }
 .results-heading h2 { color: var(--ink); }
 .results-toolbar { margin-bottom: 11px; }
 .status-filters { border-color: var(--line-strong); }
 .status-tab.chosen { background: var(--lime); color: var(--dark-text); }
 .status-tab:hover { background: var(--surface-hover); color: var(--ink); }
 .status-tab.chosen:hover { background: var(--lime-strong); color: var(--dark-text); }
+.status-filter-track { display: flex; align-items: stretch; gap: 5px; min-width: max-content; }
+.status-filter-thumb { border-radius: 7px; background: var(--lime); pointer-events: none; }
+.status-filters .status-tab { position: relative; z-index: 1; }
+.status-filters .status-tab.chosen,
+.status-filters .status-tab.chosen:hover { background: transparent; color: var(--dark-text); }
+.match-scores [data-slot="sliding-number"] { justify-content: center; min-width: 1ch; }
+.save-button[data-slot="button"]:hover { transform: none; }
 .search-control { border-color: var(--line-strong); color: var(--ink-soft); }
 .search-control input { color: var(--ink); }
 .search-control input::placeholder { color: var(--ink-muted); }
@@ -519,6 +533,7 @@ body { background: var(--paper); color: var(--ink); }
   .matchday-heading-kicker { font-size: 9px; letter-spacing: normal; }
   .update-indicator { max-width: none; margin-top: 2px; padding: 4px 0; font-size: 10px; gap: 5px; border: 0; }
   .update-indicator .update-stamp { display: none; }
+  .update-retry { padding: 2px 6px; }
   .spotlight { border-radius: 15px; padding: 11px 12px 8px; min-height: 207px; margin-bottom: 10px; }
   .spotlight-top { gap: 5px; }
   .spotlight-kicker { font-size: 9px; letter-spacing: .5px; }
@@ -594,6 +609,7 @@ body { background: var(--paper); color: var(--ink); }
   .date-tab:nth-child(2), .date-tab:nth-last-child(2) { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
+  .league-section { opacity: 1 !important; }
   .workspace .stat-box, .workspace .stat-box-pip { animation: none !important; transition: none !important; }
   .mascot-dock { will-change: auto; }
   .mascot-dock *, .mascot-dock *::before, .mascot-dock *::after { animation: none !important; transition: none !important; }
