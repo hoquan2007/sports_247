@@ -1,4 +1,5 @@
 /** Normalized, optional detail fields from ESPN's undocumented soccer summary feed. */
+import { normalizeEspnStatus } from "./espn-status.ts";
 export interface DetailStatistic {
   key: string;
   label: string;
@@ -37,6 +38,15 @@ export interface DetailCommentary {
   text: string;
 }
 
+export interface HeadToHeadMatch {
+  id: string;
+  date: string;
+  homeId: string;
+  awayId: string;
+  homeScore: number;
+  awayScore: number;
+}
+
 export interface MatchDetails {
   homeId: string | null;
   awayId: string | null;
@@ -44,6 +54,7 @@ export interface MatchDetails {
   events: DetailEvent[];
   lineups: DetailLineup[];
   commentary: DetailCommentary[];
+  headToHead: HeadToHeadMatch[];
   attendance: string | null;
   referee: string | null;
   updatedAt: string;
@@ -208,6 +219,41 @@ function parseCommentary(value: unknown): DetailCommentary[] {
   });
 }
 
+/** ESPN seasonseries may include other kinds of series; only retain completed games between these two clubs. */
+function parseHeadToHead(value: unknown, homeId: string | null, awayId: string | null): HeadToHeadMatch[] {
+  if (!homeId || !awayId || homeId === awayId) return [];
+  const series = list(prop(value, "seasonseries")).find((entry) => prop(entry, "type") === "head-to-head");
+  const seen = new Set<string>();
+  return list(prop(series, "events")).flatMap((event) => {
+    const id = str(prop(event, "id"));
+    const date = str(prop(event, "date"));
+    const competitors = list(prop(event, "competitors"));
+    const home = competitors.find((team) => prop(team, "homeAway") === "home");
+    const away = competitors.find((team) => prop(team, "homeAway") === "away");
+    const eventHomeId = teamId(home);
+    const eventAwayId = teamId(away);
+    const allowed = [homeId, awayId];
+    const eventStatus = prop(event, "status");
+    const statusName = str(nested(event, "statusType", "name"))
+      ?? str(nested(eventStatus, "type", "name")) ?? str(prop(eventStatus, "name"));
+    const statusState = str(nested(event, "statusType", "state"))
+      ?? (typeof eventStatus === "string" ? eventStatus :
+        str(nested(eventStatus, "type", "state")) ?? str(prop(eventStatus, "state")));
+    const completed = normalizeEspnStatus({ type: {
+      name: statusName ?? undefined, state: statusState ?? undefined,
+    } }).status === "finished";
+    const homeScoreText = str(prop(home, "score"));
+    const awayScoreText = str(prop(away, "score"));
+    if (!id || seen.has(id) || !date || !Number.isFinite(Date.parse(date)) || !completed ||
+        !eventHomeId || !eventAwayId || eventHomeId === eventAwayId ||
+        !allowed.includes(eventHomeId) || !allowed.includes(eventAwayId) ||
+        !homeScoreText || !awayScoreText || !/^\d{1,3}$/.test(homeScoreText) || !/^\d{1,3}$/.test(awayScoreText)) return [];
+    seen.add(id);
+    return [{ id, date, homeId: eventHomeId, awayId: eventAwayId,
+      homeScore: Number(homeScoreText), awayScore: Number(awayScoreText) }];
+  }).sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).slice(0, 5);
+}
+
 export function parseEspnMatchDetails(value: unknown): MatchDetails {
   const competitors = list(nested(value, "header", "competitions"))
     .flatMap((competition) => list(prop(competition, "competitors")));
@@ -222,6 +268,7 @@ export function parseEspnMatchDetails(value: unknown): MatchDetails {
     events: parseEvents(value),
     lineups: parseLineups(value, homeId, awayId),
     commentary: parseCommentary(value),
+    headToHead: parseHeadToHead(value, homeId, awayId),
     attendance: str(prop(gameInfo, "attendance")),
     referee: str(nested(referee, "athlete", "displayName")) ?? str(prop(referee, "displayName")),
     updatedAt: new Date().toISOString(),

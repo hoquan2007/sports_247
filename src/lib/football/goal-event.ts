@@ -11,7 +11,8 @@ export function detectGoalEvent(before: FootballMatch[], after: FootballMatch[])
   const prior = new Map(before.map((match) => [match.id, match]));
   for (const current of after) {
     const previous = prior.get(current.id);
-    if (!previous || !["live", "finished"].includes(current.status)) continue;
+    if (!previous || !["live", "finished"].includes(current.status) ||
+      !["live", "finished"].includes(previous.status)) continue;
     if (previous.homeScore === null || previous.awayScore === null ||
       current.homeScore === null || current.awayScore === null) continue;
     const homeDelta = current.homeScore - previous.homeScore;
