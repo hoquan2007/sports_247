@@ -243,7 +243,7 @@ export function MatchdayMascot({ event }: { event: GoalEvent | null }) {
           <span className="mascot-message-short">{celebrating && event ? "VÀO!!!" : shortMessages[move]}</span>
         </div>
       )}
-      <button className="mascot-action" type="button" onClick={play} aria-label="Chạm để Bóng Bự vẫy tay, sút bóng hoặc nhảy múa"
+      <button className="mascot-action" type="button" onClick={play} aria-label="247 – Chạm để Bóng Bự vẫy tay, sút bóng hoặc nhảy múa"
         onPointerEnter={syncRoaming}
         onFocus={syncRoaming} onBlur={() => window.requestAnimationFrame(syncRoaming)}
         onPointerMove={(pointer) => {

@@ -30,6 +30,7 @@ export default function RootLayout({
   return (
     <html lang="vi">
       <head>
+        <link rel="preconnect" href="https://a.espncdn.com" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>

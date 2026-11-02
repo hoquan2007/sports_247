@@ -17,10 +17,12 @@ import { BallLoading, MatchdayIntro, MatchdayMascot } from "@/components/matchda
 import { LeagueBadge } from "@/components/league-badge";
 import { LeagueStandings } from "@/components/league-standings";
 import { detectGoalEvent, type GoalEvent } from "@/lib/football/goal-event";
+import { FAVORITES_STORAGE_KEY, parseFavoriteIds, readFavoriteIds, writeFavoriteIds } from "@/lib/football/favorites";
 import { reconcileFeed } from "@/lib/football/feed-state";
 import type { DetailEvent, DetailLineup, DetailStatistic, MatchDetails } from "@/lib/football/match-details";
 import { LEAGUES, shiftDate, vietnamDate, VIETNAM_TIMEZONE } from "@/lib/football/leagues";
 import { isVietnamLeague, VIETNAM_LEAGUES } from "@/lib/football/vietnam-leagues";
+import { teamLogoImageUrl } from "@/lib/football/team-logo";
 import type { FootballMatch, FootballTeam, MatchFeed, MatchStatus } from "@/lib/football/types";
 import type { WatchResult } from "@/lib/football/watch";
 
@@ -55,7 +57,7 @@ function TeamBadge({ team, size = 32, eager = false }: { team: FootballTeam; siz
   return (
     <span className="team-badge" style={{ width: size, height: size }} aria-hidden="true">
       {team.logo && !bad ? (
-        <Image src={team.logo} alt="" width={size} height={size} unoptimized
+        <Image src={teamLogoImageUrl(team.logo, size)} alt="" width={size} height={size} unoptimized
           loading={eager ? "eager" : "lazy"} fetchPriority={eager ? "high" : "low"}
           onError={() => setBrokenUrl(team.logo)} className="team-image" />
       ) : (
@@ -193,6 +195,7 @@ function RecentForm({ team }: { team: FootballTeam }) {
 function MatchDialog({ match, onClose }: { match: FootballMatch; onClose: () => void }) {
   const dialogRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const activeDetailRequest = useRef<AbortController | null>(null);
   const [tab, setTab] = useState<DetailTab>("overview");
   const [details, setDetails] = useState<MatchDetails | null>(null);
   const [detailError, setDetailError] = useState(false);
@@ -247,23 +250,34 @@ function MatchDialog({ match, onClose }: { match: FootballMatch; onClose: () => 
 
   useEffect(() => {
     if (!supported) return;
-    const controller = new AbortController();
+    let disposed = false;
     const load = async () => {
+      // The latest live refresh wins even when a previous ESPN request is slow.
+      activeDetailRequest.current?.abort();
+      const controller = new AbortController();
+      activeDetailRequest.current = controller;
       try {
         const params = new URLSearchParams({ league: match.leagueId, event: match.eventId });
         const response = await fetch(`/api/match-details?${params}`, { signal: controller.signal });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const result = await response.json() as MatchDetails;
-        if (!controller.signal.aborted) { setDetails(result); setDetailError(false); }
+        if (!disposed && !controller.signal.aborted) { setDetails(result); setDetailError(false); }
       } catch {
-        if (!controller.signal.aborted) setDetailError(true);
+        if (!disposed && !controller.signal.aborted) setDetailError(true);
+      } finally {
+        if (activeDetailRequest.current === controller) activeDetailRequest.current = null;
       }
     };
     void load();
     const timer = match.status === "live" ? window.setInterval(() => {
       if (document.visibilityState === "visible") void load();
     }, 60000) : undefined;
-    return () => { controller.abort(); if (timer !== undefined) window.clearInterval(timer); };
+    return () => {
+      disposed = true;
+      activeDetailRequest.current?.abort();
+      activeDetailRequest.current = null;
+      if (timer !== undefined) window.clearInterval(timer);
+    };
   }, [match.leagueId, match.eventId, match.status, retryNumber, supported]);
 
   const homeId = details?.homeId ?? match.home.id;
@@ -517,6 +531,7 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
   const [query, setQuery] = useState("");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [favorites, setFavorites] = useState<string[]>([]);
+  const [favoritesReady, setFavoritesReady] = useState(false);
   const [focusedMatch, setFocusedMatch] = useState<FootballMatch | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -553,11 +568,23 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
   }, { scope: containerRef });
 
   useEffect(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem("sports247:favorites") ?? "[]") as unknown;
-      if (Array.isArray(stored)) setFavorites(stored.filter((x): x is string => typeof x === "string"));
-    } catch { /* Corrupted old storage should not prevent rendering. */ }
+    try { setFavorites(readFavoriteIds(window.localStorage)); }
+    catch { setFavorites([]); /* Storage access can be blocked by the browser. */ }
+    setFavoritesReady(true);
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === FAVORITES_STORAGE_KEY || event.key === null) {
+        setFavorites(parseFavoriteIds(event.newValue));
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
+  useEffect(() => {
+    // Persist after hydration and render, never from a React state updater.
+    if (!favoritesReady) return;
+    try { writeFavoriteIds(window.localStorage, favorites); }
+    catch { /* The favorites remain available for this tab's session. */ }
+  }, [favorites, favoritesReady]);
   useEffect(() => {
     const tick = () => setClockNow(new Date());
     tick();
@@ -631,11 +658,7 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
   }, [selectedDate, retrieve, cancelActiveRequest]);
 
   const toggleFavorite = (id: string) => {
-    setFavorites((old) => {
-      const next = old.includes(id) ? old.filter((item) => item !== id) : [...old, id];
-      localStorage.setItem("sports247:favorites", JSON.stringify(next));
-      return next;
-    });
+    setFavorites((old) => old.includes(id) ? old.filter((item) => item !== id) : [...old, id]);
   };
   const today = vietnamDate(clockNow ?? new Date());
   const games = useMemo(() => feed.date === selectedDate ? feed.matches : [], [feed, selectedDate]);
@@ -647,6 +670,9 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
     awarded: games.filter((m) => m.status === "awarded").length,
     upcoming: games.filter((m) => m.status === "scheduled").length,
   }), [games]);
+  const feedDegraded = feed.date === selectedDate && feed.partial;
+  const pendingSelectedLeague = feed.date === selectedDate && league !== "all" &&
+    (feed.pendingLeagues ?? []).includes(league);
   const visible = useMemo(() => games.filter((m) =>
     (league === "all" || m.leagueId === league) &&
     (status === "all" || m.status === status) &&
@@ -716,11 +742,11 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
           <div className="section-heading">
             <div className="matchday-heading-copy">
               <div><span className="matchday-heading-kicker">Cùng nhịp bóng đá</span><h1>Match<span>day.</span></h1></div>
-              <div className={`update-indicator${error ? " update-indicator--error" : ""}`} role="status" aria-live="polite">
-                <span className={`status-orb ${totals.live > 0 && !error ? "pulsing" : ""}`} />
-                <span>{error ? "Cập nhật gián đoạn" : "Tỷ số & lịch thi đấu"}</span>
+              <div className={`update-indicator${error || feedDegraded ? " update-indicator--error" : ""}`} role="status" aria-live="polite">
+                <span className={`status-orb ${totals.live > 0 && !error && !feedDegraded ? "pulsing" : ""}`} />
+                <span>{error ? "Cập nhật gián đoạn" : feedDegraded ? "Một số giải chưa cập nhật" : "Tỷ số & lịch thi đấu"}</span>
                 <span className="update-stamp">{error ? (feed.date === selectedDate ? `Dữ liệu gần nhất lúc ${timeOf(feed.updatedAt)}` : "Chưa có dữ liệu ngày này") : feed.date === selectedDate ? `Cập nhật lúc ${timeOf(feed.updatedAt)}` : "Đang tải lịch ngày đã chọn"}</span>
-                {error && <button className="update-retry" type="button" onClick={() => void retrieve(selectedDate, false)}>Thử lại</button>}
+                {(error || feedDegraded) && <button className="update-retry" type="button" onClick={() => void retrieve(selectedDate, false)}>Thử lại</button>}
               </div>
             </div>
             <MatchdayMascot event={goalEvent} />
@@ -814,9 +840,11 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
                 }) : (
                   <div className="empty-results">
                     {loading ? <RefreshCw size={26} className="spinning" /> : <CalendarDays size={28} />}
-                    <strong>{loading ? "Đang tải trận đấu..." : !games.length && (error || (feed.partial && (league === "all" || feed.failedLeagues?.includes(league)))) ? "Chưa thể lấy lịch thi đấu" : "Không tìm thấy trận đấu"}</strong>
-                    <p>{loading ? "Đang đồng bộ dữ liệu từ các giải." : "Hãy chọn ngày khác hoặc thay đổi bộ lọc để xem thêm trận."}</p>
-                    {!loading && <button onClick={resetFilters}>Xóa bộ lọc <ArrowUpRight size={16} /></button>}
+                    <strong>{loading ? "Đang tải trận đấu..." : pendingSelectedLeague ? "Lịch giải này chưa có dữ liệu xác nhận" : !games.length && (error || (feed.partial && (league === "all" || feed.failedLeagues?.includes(league)))) ? "Chưa thể lấy lịch thi đấu" : "Không tìm thấy trận đấu"}</strong>
+                    <p>{loading ? "Đang đồng bộ dữ liệu từ các giải." : pendingSelectedLeague ? "SPORTS247 hiện chưa nhận được lịch đáng tin cậy cho giải này. Vui lòng đối chiếu với ban tổ chức." : "Hãy chọn ngày khác hoặc thay đổi bộ lọc để xem thêm trận."}</p>
+                    {!loading && (pendingSelectedLeague ?
+                      <a className="empty-source-link" href="https://vpf.vn/mobile/" target="_blank" rel="noopener noreferrer">Xem lịch trên VPF <ExternalLink size={16} /></a> :
+                      <button onClick={resetFilters}>Xóa bộ lọc <ArrowUpRight size={16} /></button>)}
                   </div>
                 )}
               </div>

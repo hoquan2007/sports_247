@@ -11,8 +11,11 @@ import { VIETNAM_LEAGUES } from '../src/lib/football/vietnam-leagues.ts';
 const DISPLAY_LEAGUES = [...LEAGUES, ...VIETNAM_LEAGUES];
 
 const base = process.env.SPORTS247_BASE_URL ?? 'http://127.0.0.1:3199';
-const chrome = process.env.CHROME_PATH ?? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-const outputDir = path.resolve(process.env.SPORTS247_QA_OUTPUT_DIR ?? 'docs/qa');
+const chrome = process.env.CHROME_PATH ?? (process.platform === 'win32'
+  ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+  : '/usr/bin/google-chrome');
+// Preserve any screenshots curated in docs/qa unless an output directory is explicitly requested.
+const outputDir = path.resolve(process.env.SPORTS247_QA_OUTPUT_DIR ?? 'temp/qa-browser');
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const profile = await mkdtemp(path.join(tmpdir(), 'sports247-chrome-'));
 let browser;
@@ -355,6 +358,28 @@ try {
       const individualBanners = await evaluate('document.querySelectorAll(".results-area .source-notice, .results-area .error-notice").length');
       assert.equal(individualBanners, 0,
         `${viewport.name}: selecting ${division.name} must not show data diagnostics`);
+      const selectedCoverage = await evaluate(`(() => {
+        const empty = document.querySelector('.results-area .empty-results');
+        const official = empty?.querySelector('.empty-source-link');
+        return {
+          rows: document.querySelectorAll('.results-area .match-row').length,
+          title: empty?.querySelector('strong')?.textContent ?? '',
+          description: empty?.querySelector('p')?.textContent ?? '',
+          officialUrl: official?.href ?? '',
+          officialOpensSafely: official?.target === '_blank' && official?.relList.contains('noopener') && official?.relList.contains('noreferrer'),
+        };
+      })()`);
+      if (selectedCoverage.rows === 0) {
+        assert.equal(selectedCoverage.title, 'Lịch giải này chưa có dữ liệu xác nhận',
+          `${viewport.name}: ${division.name} must explain pending data when empty`);
+        assert.match(selectedCoverage.description, /chưa nhận được lịch đáng tin cậy/i,
+          `${viewport.name}: ${division.name} missing pending data explanation`);
+        assert.ok(selectedCoverage.officialUrl.startsWith('https://vpf.vn/'),
+          `${viewport.name}: ${division.name} has no official VPF calendar link`);
+        assert.equal(selectedCoverage.officialOpensSafely, true,
+          `${viewport.name}: ${division.name} official link missing safe external navigation`);
+      }
+      checks.push({ viewport: viewport.name, division: division.id, selectedCoverage });
     }
     if (pendingVietnam.length) {
       await evaluate('document.querySelector(".brand-wordmark")?.click()');
@@ -370,15 +395,55 @@ try {
     screenshots.push(`${viewport.name}-leagues.png`);
   }
 
-  await evaluate(`document.querySelector('.spotlight-open, .match-open')?.click()`);
+  await evaluate(`(() => { const opener = document.querySelector('.spotlight-open, .match-open'); opener?.focus(); opener?.click(); })()`);
   await waitFor(() => evaluate(`!!document.querySelector('[role="dialog"]')`), 10000);
   assert.equal(await evaluate(`!!document.querySelector('.dialog-league-label .league-badge')`), true,
     'Match detail dialog has no competition logo');
+  await waitFor(() => evaluate(`document.activeElement === document.querySelector('.match-dialog .icon-button')`), 10000);
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, modifiers: 8 });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, modifiers: 8 });
+  const wrappedToLast = await evaluate(`(() => {
+    const focusable = [...document.querySelectorAll('.match-dialog button:not(:disabled), .match-dialog a[href], .match-dialog [tabindex]:not([tabindex="-1"])')].filter(el => el.getClientRects().length);
+    return focusable.length > 1 && document.activeElement === focusable.at(-1);
+  })()`);
+  assert.equal(wrappedToLast, true, 'Match dialog Shift+Tab did not wrap to last focusable');
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+  assert.equal(await evaluate(`document.activeElement === document.querySelector('.match-dialog .icon-button')`), true,
+    'Match dialog Tab did not wrap to close control');
+  await evaluate(`document.querySelector('#detail-tab-overview')?.focus()`);
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 });
+  await waitFor(() => evaluate(`document.querySelector('#detail-tab-overview')?.getAttribute('aria-selected') === 'false'`), 10000);
+  assert.equal(await evaluate(`!!document.activeElement?.matches('[role="tab"][aria-selected="true"]')`), true,
+    'ArrowRight did not move focus to selected match detail tab');
   await evaluate(`document.querySelector('[role="tab"]#detail-tab-watch')?.click()`);
   await waitFor(() => evaluate(`document.querySelector('#detail-tab-watch')?.getAttribute('aria-selected') === 'true'`), 10000);
   await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
   await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
   await waitFor(() => evaluate(`!document.querySelector('[role="dialog"]')`), 10000);
+  assert.equal(await evaluate(`document.activeElement === document.querySelector('.spotlight-open, .match-open')`), true,
+    'Match detail Escape did not restore focus to opener');
+  checks.push({ viewport: 'desktop', keyboardDialog: 'focus trap, ArrowRight tab, Escape focus restoration PASS' });
+  // Recover from an interrupted in-flight refresh without waiting for the 90s timer.
+  await evaluate(`(() => {
+    document.querySelector('.header-refresh')?.click();
+    window.dispatchEvent(new Event('offline'));
+  })()`);
+  await waitFor(() => evaluate(`!!document.querySelector('.update-indicator--error .update-retry')`), 10000);
+  assert.equal(await evaluate(`document.querySelector('.header-refresh')?.getAttribute('aria-busy')`), 'false',
+    'Offline abort must release the refresh control');
+  await evaluate(`window.dispatchEvent(new Event('online'))`);
+  await waitFor(() => evaluate(`!!document.querySelector('.update-indicator:not(.update-indicator--error)')`), 45000);
+
+  // A failed manual request must show an actionable retry and clear after recovery.
+  await send('Network.setBlockedURLs', { urls: ['*/api/matches?*'] });
+  await evaluate(`document.querySelector('.header-refresh')?.click()`);
+  await waitFor(() => evaluate(`!!document.querySelector('.update-indicator--error .update-retry')`), 10000);
+  await send('Network.setBlockedURLs', { urls: [] });
+  await evaluate(`document.querySelector('.update-retry')?.click()`);
+  await waitFor(() => evaluate(`!!document.querySelector('.update-indicator:not(.update-indicator--error)')`), 45000);
+  checks.push({ viewport: 'desktop', refreshRecovery: 'offline/online and manual retry PASS' });
   // Simulate an unavailable CDN on a clean page load. Every badge must become readable text.
   await send('Network.setCacheDisabled', { cacheDisabled: true });
   await send('Network.setBlockedURLs', { urls: ['*a.espncdn.com*'] });

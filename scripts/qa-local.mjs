@@ -8,6 +8,7 @@ const nextBin = resolve(root, 'node_modules/next/dist/bin/next');
 const buildId = resolve(root, '.next/BUILD_ID');
 const port = Number(process.env.SPORTS247_QA_PORT ?? 34131);
 const runBrowser = process.argv.includes('--browser');
+const runAudit = process.argv.includes('--audit');
 const dataArg = process.argv.indexOf('--data');
 const requestedDate = dataArg === -1 ? undefined : process.argv[dataArg + 1];
 const dataDate = requestedDate?.startsWith('--') ? undefined : requestedDate;
@@ -80,6 +81,7 @@ try {
   await run('scripts/smoke-http.mjs', 'HTTP smoke');
   if (dataArg !== -1) await run('scripts/audit-data-coverage.mjs', 'Data coverage audit', dataDate ? [dataDate] : []);
   if (runBrowser) await run('scripts/qa-browser.mjs', 'Browser QA');
+  if (runAudit) await run('scripts/audit-browser.mjs', 'Browser lab audit');
   console.log(`SPORTS247 local QA passed at ${base}`);
 } catch (error) {
   console.error('SPORTS247 local QA failed:', error instanceof Error ? error.message : error);

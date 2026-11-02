@@ -26,4 +26,13 @@ jobs:
         env:
           SPORTS247_BASE_URL: https://sports247-three.vercel.app
           SPORTS247_MONITOR_FAIL_ON_PARTIAL: '1'
+          SPORTS247_MONITOR_REPORT: temp/monitor-production.json
         run: node scripts/monitor-production.mjs
+      - name: Attach failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sports247-monitor-failure
+          path: temp/monitor-production.json
+          if-no-files-found: warn
+          retention-days: 7
