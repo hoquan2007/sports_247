@@ -113,3 +113,13 @@ Sau rollback, chạy smoke và monitor trên domain thật, kiểm luồng brows
 - Xác minh quyền dùng API-Football cho V.League 1/2 và quyền nhúng nguồn live trước khi công bố dữ liệu/video thật; giữ trạng thái pending khi thiếu quyền hoặc khóa.
 
 Giữ PR ở trạng thái draft cho tới khi các điểm phát hành phù hợp được xác minh. Các thay đổi hiện tại chỉ ở working tree; chưa push/merge/deploy.
+
+## 5. Diễn tập vòng đời cảnh báo trên GitHub Actions — bổ sung 08/11/2026
+
+Sau khi phiên bản workflow mới được merge vào `main`, mở **Actions → SPORTS247 production monitor → Run workflow** và chọn nhánh `main`. Thực hiện lần lượt:
+
+1. Chọn `incident_rehearsal = failure`. Workflow vẫn kiểm tra ba endpoint public bình thường. Nếu kết quả monitor đạt, bước diễn tập chủ động làm job đỏ và tạo Issue **`[SPORTS247] Monitor alert rehearsal (test)`**. Nội dung Issue có `TEST ONLY` và link tới workflow run. Nếu monitor public thất bại thật, lỗi được báo bằng Issue production thông thường.
+2. Chọn `incident_rehearsal = recovery` trong một run mới. Nếu ba endpoint khỏe, job xanh và Issue diễn tập được bình luận rồi đóng. Kiểm tra chính Issue và link run để chứng minh đường cảnh báo hoạt động thực tế.
+3. Kiểm tra email/push GitHub Notifications của tài khoản cần nhận. Việc Issue được tạo không đủ chứng minh người phụ trách đã nhận cảnh báo. Theo dõi ít nhất một run sự kiện `schedule` riêng để xác minh cron hoạt động.
+
+Các run `push` và `schedule` không bật diễn tập. Issue production chỉ được tự đóng khi monitor thực tế thành công. Issue thử được giữ riêng và chỉ đóng bởi run `recovery`; thao tác không thay đổi dữ liệu trận đấu hay cấu hình phát sóng.
