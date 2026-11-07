@@ -59,10 +59,12 @@ function labelForStatus(status: MatchStatus) {
 function TeamBadge({ team, size = 32, eager = false }: { team: FootballTeam; size?: number; eager?: boolean }) {
   const [brokenUrl, setBrokenUrl] = useState<string | null>(null);
   const bad = brokenUrl === team.logo;
+  const useResponsiveCdn = eager && team.logo !== null && teamLogoImageUrl(team.logo, size) !== team.logo;
   return (
     <span className="team-badge" style={{ width: size, height: size }} aria-hidden="true">
       {team.logo && !bad ? (
-        <Image src={teamLogoImageUrl(team.logo, size)} alt="" width={size} height={size}
+        <Image src={useResponsiveCdn ? team.logo : teamLogoImageUrl(team.logo, size)} alt="" width={size} height={size}
+          loader={useResponsiveCdn ? ({ src, width }) => teamLogoImageUrl(src, width, 1) : undefined}
           unoptimized={!eager}
           sizes={eager ? "(max-width: 370px) 50px, (max-width: 690px) 56px, (max-width: 980px) 72px, 78px" : undefined}
           loading={eager ? "eager" : "lazy"} fetchPriority={eager ? "high" : "low"}

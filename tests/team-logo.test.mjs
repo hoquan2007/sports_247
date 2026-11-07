@@ -15,6 +15,13 @@ test("ESPN soccer crests request only the pixels needed at two-times density", (
   assert.equal(hero.searchParams.get("h"), "208");
 });
 
+test("responsive ESPN image loader uses the requested physical image width", () => {
+  const original = "https://a.espncdn.com/i/teamlogos/soccer/500/817.png";
+  assert.equal(new URL(teamLogoImageUrl(original, 96, 1)).searchParams.get("w"), "96");
+  assert.equal(new URL(teamLogoImageUrl(original, 128, 1)).searchParams.get("w"), "128");
+  assert.equal(teamLogoImageUrl(original, 96, 0), original);
+});
+
 test("unknown logo hosts and unexpected paths remain untouched", () => {
   const values = [
     "https://vpf.vn/logo.png",
