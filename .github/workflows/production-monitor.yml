@@ -1,6 +1,8 @@
 name: SPORTS247 production monitor
 
 on:
+  push:
+    branches: [main]
   schedule:
     # Low-cost check four times daily. GitHub schedules can start late.
     - cron: '17 */6 * * *'
