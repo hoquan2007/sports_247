@@ -31,10 +31,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '24'
+          package-manager-cache: false
       - name: Wait for the merged commit to reach production
         if: github.event_name == 'push'
         env:
@@ -55,7 +56,7 @@ jobs:
           exit 1
       - name: Attach failure diagnostics
         if: ${{ failure() && !(github.event_name == 'workflow_dispatch' && inputs.incident_rehearsal == 'failure' && steps.monitor.outcome == 'success') }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sports247-monitor-failure
           path: temp/monitor-production.json
@@ -63,7 +64,7 @@ jobs:
           retention-days: 7
       - name: Open or update production incident
         if: failure()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           SPORTS247_MONITOR_OUTCOME: ${{ steps.monitor.outcome }}
           SPORTS247_REHEARSAL_MODE: ${{ inputs.incident_rehearsal || 'none' }}
@@ -77,7 +78,7 @@ jobs:
             });
       - name: Resolve production incident after recovery
         if: success()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           SPORTS247_REHEARSAL_MODE: ${{ inputs.incident_rehearsal || 'none' }}
         with:
