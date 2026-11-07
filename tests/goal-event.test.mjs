@@ -17,4 +17,7 @@ test("no fake goal on initial load, no score change, missing score or negative c
   assert.equal(detectGoalEvent([fixture(null, 0)], [fixture(1, 0)]), null);
   assert.equal(detectGoalEvent([fixture(2, 0)], [fixture(1, 0)]), null);
   assert.equal(detectGoalEvent([fixture(0, 0, "scheduled")], [fixture(0, 0, "scheduled")]), null);
+  assert.equal(detectGoalEvent([fixture(0, 0, "live")], [fixture(3, 0, "awarded")]), null);
+  assert.equal(detectGoalEvent([fixture(0, 0, "awarded")], [fixture(3, 0, "finished")]), null);
+  assert.equal(detectGoalEvent([fixture(0, 0, "awarded")], [fixture(3, 0, "awarded")]), null);
 });

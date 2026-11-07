@@ -88,23 +88,134 @@ export function BallLoading({ label = "Đang cập nhật tỷ số" }: { label?
 
 export function MatchdayMascot({ event }: { event: GoalEvent | null }) {
   const [celebrating, setCelebrating] = useState(false);
-  const [expanded, setExpanded] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [move, setMove] = useState<"wave" | "kick" | "dance">("dance");
   const timerRef = useRef<number | null>(null);
   const dockRef = useRef<HTMLDivElement>(null);
+  const roamRef = useRef<gsap.core.Timeline | null>(null);
+  const busyRef = useRef(false);
 
-  // Pause the lightweight CSS path in background tabs. CSS itself handles
-  // hover, focus, celebration and reduced-motion without per-frame React work.
-  useEffect(() => {
+  const syncCompact = useCallback(() => {
     const dock = dockRef.current;
     if (!dock) return;
-    const syncVisibility = () => { dock.style.animationPlayState = document.hidden ? "paused" : ""; };
-    syncVisibility();
-    document.addEventListener("visibilitychange", syncVisibility);
-    return () => {
-      document.removeEventListener("visibilitychange", syncVisibility);
-      dock.style.animationPlayState = "";
-    };
+    if (window.innerWidth > 690) {
+      dock.dataset.compact = "false";
+      return;
+    }
+
+    // Use the unscaled dock bounds to avoid the compact state flickering as the
+    // mascot shrinks. The companion can still travel and receive a tap.
+    const mascot = dock.getBoundingClientRect();
+    const important = document.querySelectorAll<HTMLElement>(
+      ".date-panel, .stats-strip, .results-heading, .results-toolbar, .spotlight-score, .spotlight-open, .spotlight-controls",
+    );
+    const nearContent = Array.from(important).some((element) => {
+      const area = element.getBoundingClientRect();
+      return mascot.left < area.right + 6 && mascot.right > area.left - 6 &&
+        mascot.top < area.bottom + 6 && mascot.bottom > area.top - 6;
+    });
+    dock.dataset.compact = String(nearContent);
   }, []);
+
+  const syncRoaming = useCallback(() => {
+    const dock = dockRef.current;
+    const timeline = roamRef.current;
+    if (!dock || !timeline) return;
+    const paused = document.hidden || busyRef.current ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+      dock.matches(":hover, :focus-within");
+    timeline.paused(paused);
+    if (paused) dock.dataset.walking = "false";
+  }, []);
+
+  useGSAP(() => {
+    const dock = dockRef.current;
+    const action = dock?.querySelector<HTMLElement>(".mascot-action");
+    if (!dock || !action) return;
+
+    const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const buildRoute = () => {
+      roamRef.current?.kill();
+      roamRef.current = null;
+      dock.dataset.walking = "false";
+      dock.dataset.side = "right";
+      gsap.set(dock, { x: 0, y: 0 });
+      syncCompact();
+      if (motionPreference.matches) return;
+
+      const margin = 14;
+      const travelX = Math.max(0, window.innerWidth - action.offsetWidth - margin * 2);
+      const travelY = Math.max(0, Math.min(
+        window.innerHeight - action.offsetHeight - 28 - 88,
+        window.innerWidth <= 600 ? 260 : 520,
+      ));
+      if (travelX < 24 || travelY < 24) return;
+
+      // Explore the screen perimeter, leaving the central scores and match controls readable.
+      const stops = [
+        { x: -Math.min(180, travelX * .42), y: 0 },
+        { x: -travelX, y: -Math.min(32, travelY * .12) },
+        { x: -travelX, y: -travelY * .64 },
+        { x: -travelX * .78, y: -travelY },
+        { x: -travelX * .2, y: -travelY },
+        { x: 0, y: -travelY * .58 },
+        { x: 0, y: 0 },
+      ];
+
+      const timeline = gsap.timeline({ repeat: -1, repeatDelay: 1.2, paused: true });
+      let previous = { x: 0, y: 0 };
+      for (const stop of stops) {
+        const distance = Math.hypot(stop.x - previous.x, stop.y - previous.y);
+        timeline.to(dock, {
+          x: stop.x,
+          y: stop.y,
+          duration: Math.max(1.1, distance / 82),
+          ease: "sine.inOut",
+          onStart: () => { dock.dataset.walking = "true"; },
+          onUpdate: () => {
+            if (dock.dataset.walking !== "true") dock.dataset.walking = "true";
+            const side = Number(gsap.getProperty(dock, "x")) < -travelX / 2 ? "left" : "right";
+            if (dock.dataset.side !== side) dock.dataset.side = side;
+            syncCompact();
+          },
+          onComplete: () => { dock.dataset.walking = "false"; },
+        }, "+=1.1");
+        previous = stop;
+      }
+      roamRef.current = timeline;
+      syncRoaming();
+    };
+
+    let resizeFrame = 0;
+    const onResize = () => {
+      window.cancelAnimationFrame(resizeFrame);
+      resizeFrame = window.requestAnimationFrame(buildRoute);
+    };
+    const onVisibility = () => {
+      dock.dataset.paused = String(document.hidden);
+      syncRoaming();
+    };
+    buildRoute();
+    onVisibility();
+    window.addEventListener("resize", onResize);
+    window.addEventListener("scroll", syncCompact, { passive: true });
+    document.addEventListener("visibilitychange", onVisibility);
+    motionPreference.addEventListener("change", buildRoute);
+    return () => {
+      window.cancelAnimationFrame(resizeFrame);
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", syncCompact);
+      document.removeEventListener("visibilitychange", onVisibility);
+      motionPreference.removeEventListener("change", buildRoute);
+      roamRef.current?.kill();
+      roamRef.current = null;
+    };
+  }, { scope: dockRef, dependencies: [syncRoaming, syncCompact] });
+
+  useEffect(() => {
+    busyRef.current = playing || celebrating;
+    syncRoaming();
+  }, [playing, celebrating, syncRoaming]);
 
   useEffect(() => {
     if (!event) return;
@@ -114,35 +225,59 @@ export function MatchdayMascot({ event }: { event: GoalEvent | null }) {
   }, [event]);
   useEffect(() => () => { if (timerRef.current !== null) window.clearTimeout(timerRef.current); }, []);
 
-  const cheer = () => {
+  const play = () => {
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-    setExpanded((prev) => !prev);
-    setCelebrating(true);
-    timerRef.current = window.setTimeout(() => setCelebrating(false), 1000);
+    setMove((previous) => previous === "wave" ? "kick" : previous === "kick" ? "dance" : "wave");
+    setPlaying(true);
+    timerRef.current = window.setTimeout(() => setPlaying(false), 2400);
   };
 
+  const messages = { wave: "Xin chào! Cùng cổ vũ nhé!", kick: "Sút! Đường bóng tuyệt đẹp!", dance: "Nhảy mừng cùng SPORTS247!" };
+  const shortMessages = { wave: "Xin chào!", kick: "Sút bóng!", dance: "Quẩy nào!" };
+
   return (
-    <div ref={dockRef} className={`mascot-dock ${celebrating ? "is-celebrating" : ""}`}>
-      {(event || expanded) && (
+    <div ref={dockRef} className={`mascot-dock ${celebrating ? "is-celebrating" : ""} ${playing ? "is-playing" : ""}`} data-move={move} data-walking="false" data-side="right" data-compact="false">
+      {(celebrating && event || playing) && (
         <div className="mascot-message" role="status" aria-live="polite">
-          {event ? <><strong>VÀO!!!</strong> {event.teamName} · {event.score}</> : <><strong>Hú!</strong> Sẵn sàng cho trận đấu!</>}
+          <span className="mascot-message-full">{celebrating && event ? <><strong>VÀO!!!</strong> {event.teamName} · {event.score}</> : <><strong>Bóng Bự:</strong> {messages[move]}</>}</span>
+          <span className="mascot-message-short">{celebrating && event ? "VÀO!!!" : shortMessages[move]}</span>
         </div>
       )}
-      <button className="mascot-action" type="button" onClick={cheer} aria-label="Tương tác với linh vật bóng đá" aria-pressed={expanded}
+      <button className="mascot-action" type="button" onClick={play} aria-label="247 – Chạm để Bóng Bự vẫy tay, sút bóng hoặc nhảy múa"
+        onPointerEnter={syncRoaming}
+        onFocus={syncRoaming} onBlur={() => window.requestAnimationFrame(syncRoaming)}
         onPointerMove={(pointer) => {
           const bounds = pointer.currentTarget.getBoundingClientRect();
-          pointer.currentTarget.style.setProperty("--gaze-x", `${((pointer.clientX - bounds.left) / bounds.width - .5) * 7}px`);
+          pointer.currentTarget.style.setProperty("--gaze-x", `${((pointer.clientX - bounds.left) / bounds.width - .5) * 5}px`);
+          pointer.currentTarget.style.setProperty("--gaze-y", `${((pointer.clientY - bounds.top) / bounds.height - .5) * 4}px`);
         }}
         onPointerLeave={(pointer) => {
           pointer.currentTarget.style.removeProperty("--gaze-x");
+          pointer.currentTarget.style.removeProperty("--gaze-y");
+          window.requestAnimationFrame(syncRoaming);
         }}>
-        <span className="mascot-art" aria-hidden="true">
-          <span className="mascot-scarf" />
-          <span className="mascot-body"><Football className="mascot-football" /><span className="mascot-eye left" /><span className="mascot-eye right" /><span className="mascot-smile" /></span>
-          <span className="mascot-foot left" /><span className="mascot-foot right" />
+        <span className="mascot-stage" aria-hidden="true">
+          <span className="mascot-aura" />
+          <span className="mascot-spark spark-one" /><span className="mascot-spark spark-two" /><span className="mascot-spark spark-three" /><span className="mascot-spark spark-four" />
+          <span className="mascot-shadow" />
+          <span className="mascot-figure">
+            <span className="mascot-arm left"><i /></span><span className="mascot-arm right"><i /></span>
+            <span className="mascot-foot left" /><span className="mascot-foot right" />
+            <span className="mascot-body">
+              <Football className="mascot-football" />
+              <span className="mascot-face">
+                <span className="mascot-brow left" /><span className="mascot-brow right" />
+                <span className="mascot-eye left" /><span className="mascot-eye right" />
+                <span className="mascot-cheek left" /><span className="mascot-cheek right" />
+                <span className="mascot-smile" />
+              </span>
+            </span>
+            <span className="mascot-scarf" /><span className="mascot-scarf-tail" />
+            <span className="mascot-number">247</span>
+          </span>
         </span>
       </button>
-      <span className="mascot-muted"><VolumeX size={11} /> Không âm thanh</span>
+      <span className="mascot-muted"><VolumeX size={11} /> Chạm để chơi · Không âm thanh</span>
     </div>
   );
 }

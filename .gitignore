@@ -51,3 +51,7 @@ temp/
 # Development-only tooling and design reference
 /tools/
 /.taste-skill/
+
+# Browser QA temporary Chrome profiles and scratch captures
+/.qa-chrome-profile*/
+/qa-desktop.png
