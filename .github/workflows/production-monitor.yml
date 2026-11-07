@@ -7,6 +7,16 @@ on:
     # Low-cost check four times daily. GitHub schedules can start late.
     - cron: '17 */6 * * *'
   workflow_dispatch:
+    inputs:
+      incident_rehearsal:
+        description: 'Test the isolated GitHub Issue alert lifecycle'
+        type: choice
+        required: true
+        default: none
+        options:
+          - none
+          - failure
+          - recovery
 
 permissions:
   contents: read
@@ -32,13 +42,19 @@ jobs:
           SPORTS247_EXPECTED_SHA: ${{ github.sha }}
         run: node scripts/wait-for-release.mjs
       - name: Check public production endpoints (no paid video)
+        id: monitor
         env:
           SPORTS247_BASE_URL: https://sports247-three.vercel.app
           SPORTS247_MONITOR_FAIL_ON_PARTIAL: '1'
           SPORTS247_MONITOR_REPORT: temp/monitor-production.json
         run: node scripts/monitor-production.mjs
+      - name: Rehearse a monitor failure after healthy production checks
+        if: ${{ success() && github.event_name == 'workflow_dispatch' && inputs.incident_rehearsal == 'failure' }}
+        run: |
+          echo '::error::Synthetic failure for the isolated SPORTS247 alert rehearsal'
+          exit 1
       - name: Attach failure diagnostics
-        if: failure()
+        if: ${{ failure() && !(github.event_name == 'workflow_dispatch' && inputs.incident_rehearsal == 'failure' && steps.monitor.outcome == 'success') }}
         uses: actions/upload-artifact@v4
         with:
           name: sports247-monitor-failure
@@ -48,37 +64,26 @@ jobs:
       - name: Open or update production incident
         if: failure()
         uses: actions/github-script@v7
+        env:
+          SPORTS247_MONITOR_OUTCOME: ${{ steps.monitor.outcome }}
+          SPORTS247_REHEARSAL_MODE: ${{ inputs.incident_rehearsal || 'none' }}
         with:
           script: |
-            const { owner, repo } = context.repo;
-            const title = '[SPORTS247] Production monitor failed';
-            const link = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
-            const body = `Production monitor failed at ${new Date().toISOString()}. [View workflow run](${link}) and its diagnostics artifact.`;
-            const issues = await github.paginate(github.rest.issues.listForRepo, {
-              owner, repo, state: 'open', per_page: 100,
+            const { openMonitorIncident } = require('./scripts/monitor-incidents.cjs');
+            await openMonitorIncident({
+              github, context,
+              rehearsalMode: process.env.SPORTS247_REHEARSAL_MODE,
+              monitorOutcome: process.env.SPORTS247_MONITOR_OUTCOME,
             });
-            const incident = issues.find((issue) => !issue.pull_request && issue.title === title);
-            if (incident) {
-              await github.rest.issues.createComment({ owner, repo, issue_number: incident.number, body });
-            } else {
-              await github.rest.issues.create({ owner, repo, title, body });
-            }
       - name: Resolve production incident after recovery
         if: success()
         uses: actions/github-script@v7
+        env:
+          SPORTS247_REHEARSAL_MODE: ${{ inputs.incident_rehearsal || 'none' }}
         with:
           script: |
-            const { owner, repo } = context.repo;
-            const title = '[SPORTS247] Production monitor failed';
-            const issues = await github.paginate(github.rest.issues.listForRepo, {
-              owner, repo, state: 'open', per_page: 100,
+            const { resolveMonitorIncidents } = require('./scripts/monitor-incidents.cjs');
+            await resolveMonitorIncidents({
+              github, context,
+              rehearsalMode: process.env.SPORTS247_REHEARSAL_MODE,
             });
-            const incident = issues.find((issue) => !issue.pull_request && issue.title === title);
-            if (incident) {
-              const link = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
-              await github.rest.issues.createComment({
-                owner, repo, issue_number: incident.number,
-                body: `Production monitor recovered at ${new Date().toISOString()}. [View successful run](${link}).`,
-              });
-              await github.rest.issues.update({ owner, repo, issue_number: incident.number, state: 'closed' });
-            }
