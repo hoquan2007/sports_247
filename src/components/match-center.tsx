@@ -62,7 +62,9 @@ function TeamBadge({ team, size = 32, eager = false }: { team: FootballTeam; siz
   return (
     <span className="team-badge" style={{ width: size, height: size }} aria-hidden="true">
       {team.logo && !bad ? (
-        <Image src={teamLogoImageUrl(team.logo, size)} alt="" width={size} height={size} unoptimized
+        <Image src={teamLogoImageUrl(team.logo, size)} alt="" width={size} height={size}
+          unoptimized={!eager}
+          sizes={eager ? "(max-width: 370px) 50px, (max-width: 690px) 56px, (max-width: 980px) 72px, 78px" : undefined}
           loading={eager ? "eager" : "lazy"} fetchPriority={eager ? "high" : "low"}
           onError={() => setBrokenUrl(team.logo)} className="team-image" />
       ) : (

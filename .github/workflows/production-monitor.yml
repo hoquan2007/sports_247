@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: sports247-production-monitor
@@ -36,3 +37,40 @@ jobs:
           path: temp/monitor-production.json
           if-no-files-found: warn
           retention-days: 7
+      - name: Open or update production incident
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const title = '[SPORTS247] Production monitor failed';
+            const link = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const body = `Production monitor failed at ${new Date().toISOString()}. [View workflow run](${link}) and its diagnostics artifact.`;
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', per_page: 100,
+            });
+            const incident = issues.find((issue) => !issue.pull_request && issue.title === title);
+            if (incident) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: incident.number, body });
+            } else {
+              await github.rest.issues.create({ owner, repo, title, body });
+            }
+      - name: Resolve production incident after recovery
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const title = '[SPORTS247] Production monitor failed';
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', per_page: 100,
+            });
+            const incident = issues.find((issue) => !issue.pull_request && issue.title === title);
+            if (incident) {
+              const link = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: incident.number,
+                body: `Production monitor recovered at ${new Date().toISOString()}. [View successful run](${link}).`,
+              });
+              await github.rest.issues.update({ owner, repo, issue_number: incident.number, state: 'closed' });
+            }
