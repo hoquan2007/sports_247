@@ -19,12 +19,18 @@ concurrency:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Wait for the merged commit to reach production
+        if: github.event_name == 'push'
+        env:
+          SPORTS247_BASE_URL: https://sports247-three.vercel.app
+          SPORTS247_EXPECTED_SHA: ${{ github.sha }}
+        run: node scripts/wait-for-release.mjs
       - name: Check public production endpoints (no paid video)
         env:
           SPORTS247_BASE_URL: https://sports247-three.vercel.app
