@@ -165,7 +165,12 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .results-heading { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
 .results-heading .eyebrow { font-size: 12px; color: var(--tone-22); }
 .results-heading h2 { margin: 4px 0 0; font-family: var(--font-display); font-size: 30px; letter-spacing: -.9px; font-weight: 800; }
+.results-heading-actions { display: flex; gap: 12px; align-items: center; }
 .match-count { color: var(--ink-soft); font-size: 13px; margin-bottom: 5px; }
+.share-filters { display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px; border: 1px solid var(--line); background: var(--white); color: var(--forest); border-radius: 10px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.share-filters:hover { background: var(--lime-faint); }
+.share-filters:focus-visible { outline: 2px solid var(--lime-strong); outline-offset: 2px; }
+.share-feedback { margin: -10px 0 13px; color: var(--forest); font-size: 12px; }
 .results-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
 .status-filters { display: flex; gap: 5px; padding: 4px; border: 1px solid var(--line); border-radius: 11px; background: var(--white); max-width: 100%; overflow-x: auto; }
 .status-tab { font-size: 12px; font-weight: 650; white-space: nowrap; padding: 10px 12px; border-radius: 7px; border: none; color: var(--ink-soft); background: transparent; display: inline-flex; align-items: center; gap: 7px; transition: background .18s ease,color .18s ease; }
@@ -236,7 +241,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .competition-item:hover { background: var(--paper); color: var(--forest); }
 .competition-item.active { background: var(--lime-faint); color: var(--forest); font-weight: 750; }
 .competition-item > span:nth-child(2) { min-width: 0; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
-.competition-item strong { font-size: 11px; font-weight: 750; color: var(--ink-muted); text-align: right; }
+.competition-item strong { font-size: 11px; font-weight: 750; color: var(--ink-soft); text-align: right; }
 .competition-mark { background: var(--paper); border: 1px solid var(--line); border-radius: 7px; width: 31px; height: 31px; display: grid; place-items: center; font-weight: 800; font-size: 9px; color: var(--forest); }
 .competition-item.active .competition-mark { background: var(--forest); border-color: var(--forest); color: var(--white); }
 .coverage-card p, .sources-card p { color: var(--ink-soft); line-height: 1.65; font-size: 12px; margin: 13px 0; }
@@ -348,6 +353,9 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
   .feature-bottom { font-size: 10px; }
   .feature-bottom > span:last-child { display: none; }
   .results-heading h2 { font-size: 27px; }
+  .results-heading-actions { gap: 7px; }
+  .share-filters { padding: 8px; }
+  .share-filters span { display: none; }
   .results-toolbar { flex-direction: column; align-items: stretch; }
   .status-filters { width: 100%; }
   .status-tab { font-size: 11px; padding: 9px 11px; }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { teamLogoImageUrl } from "../src/lib/football/team-logo.ts";
+import { leagueLogoImageUrl, teamLogoImageUrl } from "../src/lib/football/team-logo.ts";
 
 test("ESPN soccer crests request only the pixels needed at two-times density", () => {
   const original = "https://a.espncdn.com/i/teamlogos/soccer/500/817.png";
@@ -24,4 +24,15 @@ test("unknown logo hosts and unexpected paths remain untouched", () => {
     "not a url",
   ];
   for (const value of values) assert.equal(teamLogoImageUrl(value, 27), value);
+});
+
+test("ESPN league crests are resized using the same trusted combiner", () => {
+  const source = "https://a.espncdn.com/i/leaguelogos/soccer/500/2395.png";
+  const resized = new URL(leagueLogoImageUrl(source, 39));
+  assert.equal(resized.pathname, "/combiner/i");
+  assert.equal(resized.searchParams.get("img"), "/i/leaguelogos/soccer/500/2395.png");
+  assert.equal(resized.searchParams.get("w"), "80");
+  assert.equal(leagueLogoImageUrl("https://vpf.vn/wp-content/uploads/2026/09/Thumb-VL1.jpg", 39),
+    "https://vpf.vn/wp-content/uploads/2026/09/Thumb-VL1.jpg");
+  assert.equal(teamLogoImageUrl(source, 39), source);
 });

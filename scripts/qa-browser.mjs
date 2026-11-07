@@ -395,6 +395,75 @@ try {
     screenshots.push(`${viewport.name}-leagues.png`);
   }
 
+  // Shared URLs must hydrate with the same filters, remain usable on narrow screens,
+  // and restore filters when the user moves through browser history.
+  const deepParams = new URLSearchParams({ date: '2026-11-15', league: 'vie.1', status: 'postponed', q: 'Hà Nội FC' });
+  const deepUrl = new URL(`/?${deepParams}`, base).toString();
+  for (const viewport of [
+    { name: 'desktop', width: 1440, height: 900, mobile: false },
+    { name: 'compact', width: 320, height: 740, mobile: true },
+  ]) {
+    await send('Emulation.setDeviceMetricsOverride', { width: viewport.width, height: viewport.height, deviceScaleFactor: 1, mobile: viewport.mobile });
+    await send('Page.navigate', { url: deepUrl });
+    await waitFor(() => evaluate(`(() => {
+      const input = document.querySelector('.search-control input');
+      return document.readyState === 'complete' && input?.value === 'Hà Nội FC' &&
+        !document.querySelector('.clock-label')?.textContent.includes('--:--');
+    })()`), 30000);
+    const restored = await evaluate(`(() => ({
+      date: document.querySelector('.date-tab.selected strong')?.textContent,
+      league: document.querySelector('.competition-item.active .league-badge')?.dataset.leagueId,
+      status: document.querySelector('.status-tab.chosen')?.textContent.trim(),
+      pageWidth: document.documentElement.scrollWidth,
+      viewportWidth: innerWidth,
+    }))()`);
+    assert.equal(restored.date, '15/11', `${viewport.name}: shared date was not restored`);
+    assert.equal(restored.league, 'vie.1', `${viewport.name}: shared league was not restored`);
+    assert.match(restored.status ?? '', /Tạm hoãn/, `${viewport.name}: shared exceptional status lacks an active control`);
+    assert.ok(restored.pageWidth <= restored.viewportWidth + 2, `${viewport.name}: shared filters overflow the page`);
+
+    await evaluate(`(() => {
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+        writeText: async (value) => { window.__sports247CopiedLink = value; },
+      } });
+      document.querySelector('.share-filters')?.click();
+    })()`);
+    await waitFor(() => evaluate('!!window.__sports247CopiedLink'), 5000);
+    const copied = await evaluate('window.__sports247CopiedLink');
+    assert.equal(new URL(copied).search, `?${deepParams}`, `${viewport.name}: copied link lost shared filters`);
+    assert.equal(await evaluate('document.querySelector(".share-feedback")?.textContent.includes("Đã sao chép")'), true,
+      `${viewport.name}: clipboard success was not announced`);
+
+    await evaluate(`(() => {
+      const input = document.querySelector('.search-control input');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'Bình Dương');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelectorAll('.status-tab').forEach((button) => {
+        if (button.textContent.trim() === 'Sắp diễn ra') button.click();
+      });
+    })()`);
+    await waitFor(() => evaluate(`new URLSearchParams(location.search).get('q') === 'Bình Dương' &&
+      new URLSearchParams(location.search).get('status') === 'scheduled'`), 10000);
+    const modifiedUrl = await evaluate('location.href');
+    const nextParams = new URLSearchParams({ date: '2026-11-16', league: 'eng.1', status: 'cancelled', q: 'Arsenal' });
+    const nextUrl = new URL(`/?${nextParams}`, base).toString();
+    await evaluate(`history.pushState({ qa: true }, '', ${JSON.stringify(nextUrl)}); history.back()`);
+    await waitFor(() => evaluate(`location.href === ${JSON.stringify(modifiedUrl)}`), 10000);
+    await evaluate('history.forward()');
+    await waitFor(() => evaluate(`(() => location.href === ${JSON.stringify(nextUrl)} &&
+      document.querySelector('.search-control input')?.value === 'Arsenal' &&
+      document.querySelector('.date-tab.selected strong')?.textContent === '16/11' &&
+      document.querySelector('.competition-item.active .league-badge')?.dataset.leagueId === 'eng.1' &&
+      document.querySelector('.status-tab.chosen')?.textContent.includes('Đã hủy'))()`), 15000);
+    await evaluate('history.back()');
+    await waitFor(() => evaluate(`location.href === ${JSON.stringify(modifiedUrl)} &&
+      document.querySelector('.search-control input')?.value === 'Bình Dương' &&
+      document.querySelector('.status-tab.chosen')?.textContent.trim() === 'Sắp diễn ra'`), 15000);
+    checks.push({ viewport: viewport.name, sharedFilters: 'deep link, clipboard, edits, Back/Forward PASS' });
+  }
+  await send('Page.navigate', { url: base });
+  await waitFor(() => evaluate(`document.readyState === 'complete' && !!document.querySelector('.spotlight-open, .match-open')`), 30000);
+
   await evaluate(`(() => { const opener = document.querySelector('.spotlight-open, .match-open'); opener?.focus(); opener?.click(); })()`);
   await waitFor(() => evaluate(`!!document.querySelector('[role="dialog"]')`), 10000);
   assert.equal(await evaluate(`!!document.querySelector('.dialog-league-label .league-badge')`), true,

@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   images: {
-    unoptimized: true,
+    // ESPN crests use their image combiner; enable Next's resizing only for VPF badges.
     remotePatterns: [
       { protocol: "https", hostname: "a.espncdn.com" },
       { protocol: "https", hostname: "api.openligadb.de" },

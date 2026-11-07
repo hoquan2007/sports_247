@@ -11,7 +11,7 @@ import gsap from "gsap";
 import {
   Activity, ArrowUpRight, CalendarDays, Check, ChevronLeft, ChevronRight,
   Clock3, ExternalLink, Heart, Info, MapPin, Radio, RefreshCw,
-  Search, Star, Trophy, Tv, X,
+  Search, Share2, Star, Trophy, Tv, X,
 } from "lucide-react";
 import { BallLoading, MatchdayIntro, MatchdayMascot } from "@/components/matchday-motion";
 import { LeagueBadge } from "@/components/league-badge";
@@ -19,6 +19,7 @@ import { LeagueStandings } from "@/components/league-standings";
 import { detectGoalEvent, type GoalEvent } from "@/lib/football/goal-event";
 import { FAVORITES_STORAGE_KEY, parseFavoriteIds, readFavoriteIds, writeFavoriteIds } from "@/lib/football/favorites";
 import { reconcileFeed } from "@/lib/football/feed-state";
+import { parseMatchFilters, serializeMatchFilters, type MatchFilters, type StatusFilter } from "@/lib/football/shareable-filters";
 import type { DetailEvent, DetailLineup, DetailStatistic, MatchDetails } from "@/lib/football/match-details";
 import { LEAGUES, shiftDate, vietnamDate, VIETNAM_TIMEZONE } from "@/lib/football/leagues";
 import { isVietnamLeague, VIETNAM_LEAGUES } from "@/lib/football/vietnam-leagues";
@@ -26,10 +27,14 @@ import { teamLogoImageUrl } from "@/lib/football/team-logo";
 import type { FootballMatch, FootballTeam, MatchFeed, MatchStatus } from "@/lib/football/types";
 import type { WatchResult } from "@/lib/football/watch";
 
-type StatusFilter = "all" | MatchStatus;
 gsap.registerPlugin(useGSAP);
 const DISPLAY_LEAGUES = [...LEAGUES, ...VIETNAM_LEAGUES];
 const COMPETITION_ORDER = new Map(DISPLAY_LEAGUES.map((league, index) => [league.id, index]));
+const EXTRA_STATUS_FILTERS = [
+  { id: "postponed", label: "Tạm hoãn" },
+  { id: "cancelled", label: "Đã hủy" },
+  { id: "interrupted", label: "Gián đoạn" },
+] as const;
 
 function timeOf(value: string) {
   return new Intl.DateTimeFormat("vi-VN", {
@@ -522,13 +527,15 @@ function MatchSpotlight({ matches, onOpen }: { matches: FootballMatch[]; onOpen:
   );
 }
 
-export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
+export function MatchCenter({ initialFeed, initialFilters }: { initialFeed: MatchFeed; initialFilters?: MatchFilters }) {
+  const filters: MatchFilters = initialFilters ?? { date: initialFeed.date, league: "all", status: "all", query: "" };
   const containerRef = useRef<HTMLDivElement>(null);
-  const [selectedDate, setSelectedDate] = useState(initialFeed.date);
+  const [selectedDate, setSelectedDate] = useState(filters.date);
   const [feed, setFeed] = useState(initialFeed);
-  const [league, setLeague] = useState("all");
-  const [status, setStatus] = useState<StatusFilter>("all");
-  const [query, setQuery] = useState("");
+  const [league, setLeague] = useState(filters.league);
+  const [status, setStatus] = useState<StatusFilter>(filters.status);
+  const [query, setQuery] = useState(filters.query);
+  const [shareStatus, setShareStatus] = useState<"idle" | "copied" | "unavailable">("idle");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [favoritesReady, setFavoritesReady] = useState(false);
@@ -549,6 +556,30 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
     activeRequestRef.current = null;
     latestRequestRef.current++;
     controller?.abort();
+  }, []);
+
+  useEffect(() => {
+    // Keep shared links accurate after filter changes without creating a history entry on every keystroke.
+    const params = serializeMatchFilters({ date: selectedDate, league, status, query });
+    const url = `${window.location.pathname}?${params.toString()}${window.location.hash}`;
+    if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== url) {
+      window.history.replaceState(window.history.state, "", url);
+    }
+  }, [selectedDate, league, status, query]);
+
+  useEffect(() => {
+    const restoreFilters = () => {
+      const restored = parseMatchFilters(new URLSearchParams(window.location.search), vietnamDate(new Date()));
+      activeDateRef.current = restored.date;
+      setSelectedDate(restored.date);
+      setLeague(restored.league);
+      setStatus(restored.status);
+      setQuery(restored.query);
+      setFavoritesOnly(false);
+      setShareStatus("idle");
+    };
+    window.addEventListener("popstate", restoreFilters);
+    return () => window.removeEventListener("popstate", restoreFilters);
   }, []);
 
   useEffect(() => {
@@ -701,6 +732,17 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
   };
   const goToday = () => { setFavoritesOnly(false); setLeague("all"); setQuery(""); chooseDate(today); };
   const resetFilters = () => { setFavoritesOnly(false); setLeague("all"); setStatus("all"); setQuery(""); };
+  const shareFilters = async () => {
+    const url = new URL(window.location.href);
+    url.search = serializeMatchFilters({ date: selectedDate, league, status, query }).toString();
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(url.toString());
+      setShareStatus("copied");
+    } catch {
+      setShareStatus("unavailable");
+    }
+  };
   const closeDialog = useCallback(() => setFocusedMatch(null), []);
 
   return (
@@ -793,8 +835,12 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
             <section className="results-area" aria-label="Danh sách trận đấu">
               <div className="results-heading">
                 <div><span className="eyebrow">Toàn bộ trận đấu</span><h2>{selectedDate === today ? "Hôm nay" : dateOf(`${selectedDate}T12:00:00Z`, { year: undefined })}</h2></div>
-                <span className="match-count mono">{visible.length} trận</span>
+                <div className="results-heading-actions">
+                  <span className="match-count mono">{visible.length} trận</span>
+                  <button type="button" className="share-filters" onClick={() => void shareFilters()} aria-label="Sao chép liên kết bộ lọc hiện tại" title="Sao chép liên kết chia sẻ"><Share2 size={15} /><span>Chia sẻ</span></button>
+                </div>
               </div>
+              {shareStatus !== "idle" && <p className="share-feedback" role="status" aria-live="polite">{shareStatus === "copied" ? "Đã sao chép liên kết bộ lọc." : "Không thể sao chép tự động. Bạn có thể sao chép liên kết trên thanh địa chỉ."}</p>}
               <div className="results-toolbar">
                 <div className="status-filters" role="group" aria-label="Lọc trạng thái">
                   <Highlight mode="parent" controlledItems value={status} click={false} containerClassName="status-filter-track" className="status-filter-thumb">
@@ -807,13 +853,19 @@ export function MatchCenter({ initialFeed }: { initialFeed: MatchFeed }) {
                         </button>
                       </HighlightItem>
                     ))}
-                    {totals.awarded > 0 && <HighlightItem value="awarded" asChild>
+                    {(totals.awarded > 0 || status === "awarded") && <HighlightItem value="awarded" asChild>
                       <button type="button" className={status === "awarded" ? "status-tab chosen" : "status-tab"} aria-pressed={status === "awarded"} onClick={() => setStatus("awarded")}>Xử lý hành chính ({totals.awarded})</button>
                     </HighlightItem>}
+                    {EXTRA_STATUS_FILTERS.map(({ id, label }) => {
+                      const count = games.filter((match) => match.status === id).length;
+                      return count > 0 || status === id ? <HighlightItem key={id} value={id} asChild>
+                        <button type="button" className={status === id ? "status-tab chosen" : "status-tab"} aria-pressed={status === id} onClick={() => setStatus(id)}>{label} ({count})</button>
+                      </HighlightItem> : null;
+                    })}
                   </Highlight>
                 </div>
                 <label className="search-control"><Search size={17} />
-                  <input type="search" placeholder="Tìm đội bóng, giải đấu..." value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Tìm trận đấu" />
+                  <input type="search" placeholder="Tìm đội bóng, giải đấu..." value={query} maxLength={100} onChange={(e) => setQuery(e.target.value)} aria-label="Tìm trận đấu" />
                 </label>
               </div>
               {favoritesOnly && <div className="filter-notice"><Heart size={15} /> Chỉ hiển thị trận yêu thích <button onClick={() => setFavoritesOnly(false)}>Bỏ lọc <X size={14} /></button></div>}

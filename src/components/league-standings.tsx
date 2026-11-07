@@ -5,6 +5,7 @@ import Image from "next/image";
 import { ArrowUpRight, ChartNoAxesColumn, Expand, RefreshCw, X } from "lucide-react";
 import { LeagueBadge } from "@/components/league-badge";
 import { LEAGUES } from "@/lib/football/leagues";
+import { teamLogoImageUrl } from "@/lib/football/team-logo";
 import { STANDINGS_LEAGUES, type StandingFeed, type StandingEntry } from "@/lib/football/standings";
 
 const AVAILABLE = LEAGUES.filter((league) => STANDINGS_LEAGUES.some((id) => id === league.id));
@@ -13,7 +14,7 @@ function StandingTeam({ entry }: { entry: StandingEntry }) {
   const [broken, setBroken] = useState<string | null>(null);
   return <span className="standings-team" title={entry.name}>
     {entry.logo && entry.logo !== broken
-      ? <Image src={entry.logo} width={21} height={21} unoptimized alt="" onError={() => setBroken(entry.logo)} />
+      ? <Image src={teamLogoImageUrl(entry.logo, 21)} width={21} height={21} unoptimized alt="" onError={() => setBroken(entry.logo)} />
       : <span className="standings-team-fallback" aria-hidden="true">{entry.name.slice(0, 2).toUpperCase()}</span>}
     <span>{entry.name}</span>
   </span>;

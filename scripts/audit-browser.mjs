@@ -25,6 +25,7 @@ const contrastSummary = (review) => ({
   pass: review.nodes.filter((node) => node.status === 'pass').length,
   needsReview: review.nodes.filter((node) => node.status === 'needs-review').length,
   notMeasured: review.nodes.filter((node) => node.status === 'not-measured').length,
+  excluded: review.nodes.filter((node) => node.status === 'excluded').length,
 });
 const profile = await mkdtemp(path.join(tmpdir(), 'sports247-audit-'));
 const pending = new Map();
@@ -136,12 +137,18 @@ async function reviewGradientContrast(incomplete) {
     const nodes = selectors.map(selector => {
       const element = document.querySelector(selector);
       if (!element) return { selector, rectangles: [], reason: 'selector missing' };
+      // SlidingNumber renders offscreen decorative digits inside aria-hidden rollers.
+      // Their text ranges are not visible text and must not enter pixel contrast checks.
+      if (element.closest('[aria-hidden="true"]')) return {
+        selector, rectangles: [], reason: 'aria-hidden decorative text', excluded: true,
+      };
       const style = getComputedStyle(element);
       const rectangles = [];
       const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
       while (walker.nextNode()) {
         const text = walker.currentNode;
         if (!text.textContent?.trim()) continue;
+        if (text.parentElement?.closest('[aria-hidden="true"]')) continue;
         const range = document.createRange();
         range.selectNodeContents(text);
         for (const rect of range.getClientRects()) {
@@ -153,6 +160,7 @@ async function reviewGradientContrast(incomplete) {
       }
       return {
         selector, rectangles, foreground: style.color,
+        excluded: rectangles.length === 0, reason: rectangles.length ? undefined : 'only aria-hidden decorative text',
         fontSize: Number.parseFloat(style.fontSize), fontWeight: Number.parseInt(style.fontWeight, 10),
       };
     });
@@ -197,6 +205,7 @@ async function reviewGradientContrast(incomplete) {
       const luminance = (r, g, b) => 0.2126 * gamma(r) + 0.7152 * gamma(g) + 0.0722 * gamma(b);
       const parseColor = value => (value?.match(/[\\d.]+/g) ?? []).slice(0, 3).map(Number);
       return targets.map(node => {
+        if (node.excluded) return { selector: node.selector, status: 'excluded', reason: node.reason };
         const rgb = parseColor(node.foreground);
         if (rgb.length !== 3 || !node.rectangles?.length) return { selector: node.selector, status: 'not-measured', reason: node.reason ?? 'no text rectangles or RGB color' };
         const foreground = luminance(...rgb);
