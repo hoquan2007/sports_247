@@ -158,6 +158,23 @@ try {
       }))()`);
       throw new Error(`${viewport.name}: intro did not unmount (${JSON.stringify(state)}): ${error.message}`);
     }
+    let speedInsights;
+    try {
+      speedInsights = await waitFor(() => evaluate(`(() => {
+        const script = document.querySelector('script[data-sdkn^="@vercel/speed-insights"]');
+        return script ? { src: script.getAttribute('src'), sampleRate: script.dataset.sampleRate } : null;
+      })()`));
+    } catch (error) {
+      const diagnostic = await evaluate(`(() => ({
+        scripts: [...document.scripts].map(script => ({ src: script.getAttribute('src'), sampleRate: script.dataset.sampleRate })).filter(script => script.src),
+        queueInitialized: typeof window.si === 'function',
+        hydrationComplete: !document.querySelector('.matchday-intro'),
+        url: location.href,
+      }))()`);
+      throw new Error(`${viewport.name}: Speed Insights script missing after hydration (${JSON.stringify(diagnostic)}): ${error.message}`);
+    }
+    assert.equal(speedInsights.sampleRate, '0.25', `${viewport.name}: incorrect Speed Insights sample rate`);
+    checks.push({ viewport: viewport.name, speedInsights });
     const before = await inspect(viewport.name);
     console.log(`${viewport.name} browser diagnostics: ${JSON.stringify(before)}`);
     assert.ok(before.hasSpotlight, `${viewport.name}: no spotlight`);
