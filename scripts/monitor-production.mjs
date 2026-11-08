@@ -34,6 +34,12 @@ export async function monitorProduction({
         signal: AbortSignal.timeout(timeoutMs), cache: 'no-store',
         headers: { Accept: path === '/' ? 'text/html' : 'application/json' },
       });
+      if (response.url) {
+        const resolvedUrl = new URL(response.url);
+        if (resolvedUrl.origin !== origin.origin) {
+          throw new Error(`${name} unexpectedly redirected to ${resolvedUrl.origin}${resolvedUrl.pathname}`);
+        }
+      }
       assert.equal(response.status, 200, `${name} returned HTTP ${response.status}`);
       const type = response.headers.get('content-type') ?? '';
       const body = path === '/' ? (assert.match(type, /text\/html/i), await response.text())
@@ -49,6 +55,8 @@ export async function monitorProduction({
   }
 
   await probe('homepage', '/', (html) => {
+    assert.match(html, /<html\b[^>]*\blang=["']vi["']/i,
+      'Homepage returned an unexpected document');
     assert.match(html, /SPORTS247/i, 'Missing product name');
   });
   await probe('matches', `/api/matches?date=${encodeURIComponent(date)}`, (feed) => {

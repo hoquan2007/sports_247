@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 // Run against a local or deployed server. Live-video calls are opt-in because they consume credits.
 const base = process.env.SPORTS247_BASE_URL ?? 'http://127.0.0.1:3199';
+const expectedOrigin = new URL(base).origin;
 const checkVideo = process.argv.includes('--watch');
 const date = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -17,6 +18,10 @@ async function get(path) {
     const reason = error?.cause?.code ?? error?.code ?? error?.message ?? 'unknown';
     throw new Error(`${path}: không thể kết nối tới ${new URL(base).origin} (${reason})`);
   }
+  const resolvedUrl = new URL(response.url);
+  if (resolvedUrl.origin !== expectedOrigin) {
+    throw new Error(`${path}: unexpected cross-origin redirect to ${resolvedUrl.origin}${resolvedUrl.pathname}`);
+  }
   const contentType = response.headers.get('content-type') ?? '';
   const body = contentType.includes('application/json') ? await response.json() : await response.text();
   return { response, body };
@@ -31,6 +36,7 @@ async function check(label, path, expected, validate = () => {}) {
 
 try {
   await check('Homepage', '/', 200, (body) => {
+    assert.match(body, /<html\b[^>]*\blang=["']vi["']/i, 'Homepage did not return the SPORTS247 Vietnamese document');
     assert.match(body, /SPORTS247/i);
   });
   await check('Reject bad date', '/api/matches?date=2026-02-31', 400);
