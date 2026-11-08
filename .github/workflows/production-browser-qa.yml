@@ -1,0 +1,44 @@
+name: SPORTS247 production browser QA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sports247-production-browser-qa
+  cancel-in-progress: true
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Wait for this commit to be deployed
+        env:
+          SPORTS247_BASE_URL: https://sports247-three.vercel.app
+          SPORTS247_EXPECTED_SHA: ${{ github.sha }}
+        run: node scripts/wait-for-release.mjs
+      - name: Verify production browser on desktop and mobile
+        env:
+          SPORTS247_BASE_URL: https://sports247-three.vercel.app
+          SPORTS247_QA_OUTPUT_DIR: temp/qa-browser-production
+        run: node scripts/qa-browser.mjs
+      - name: Upload browser evidence on failure
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: sports247-production-browser-qa-failure
+          path: temp/qa-browser-production
+          if-no-files-found: warn
+          retention-days: 7

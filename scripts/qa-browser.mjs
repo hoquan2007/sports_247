@@ -527,11 +527,14 @@ try {
   await waitFor(() => evaluate(`document.querySelector('#detail-tab-overview')?.getAttribute('aria-selected') === 'false'`), 10000);
   assert.equal(await evaluate(`!!document.activeElement?.matches('[role="tab"][aria-selected="true"]')`), true,
     'ArrowRight did not move focus to selected match detail tab');
+  // Exercise the watch tab without contacting optional paid video providers.
+  await send('Network.setBlockedURLs', { urls: ['*/api/watch?*'] });
   await evaluate(`document.querySelector('[role="tab"]#detail-tab-watch')?.click()`);
   await waitFor(() => evaluate(`document.querySelector('#detail-tab-watch')?.getAttribute('aria-selected') === 'true'`), 10000);
   await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
   await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
   await waitFor(() => evaluate(`!document.querySelector('[role="dialog"]')`), 10000);
+  await send('Network.setBlockedURLs', { urls: [] });
   assert.equal(await evaluate(`document.activeElement === document.querySelector('.spotlight-open, .match-open')`), true,
     'Match detail Escape did not restore focus to opener');
   checks.push({ viewport: 'desktop', keyboardDialog: 'focus trap, ArrowRight tab, Escape focus restoration PASS' });
