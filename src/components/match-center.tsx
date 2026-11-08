@@ -37,10 +37,13 @@ const EXTRA_STATUS_FILTERS = [
   { id: "interrupted", label: "Gián đoạn" },
 ] as const;
 
+const TIME_FORMATTER = new Intl.DateTimeFormat("vi-VN", {
+  timeZone: VIETNAM_TIMEZONE, hour: "2-digit", minute: "2-digit", hour12: false,
+});
+const WEEKDAY_FORMATTER = new Intl.DateTimeFormat("vi-VN", { timeZone: "UTC", weekday: "short" });
+
 function timeOf(value: string) {
-  return new Intl.DateTimeFormat("vi-VN", {
-    timeZone: VIETNAM_TIMEZONE, hour: "2-digit", minute: "2-digit", hour12: false,
-  }).format(new Date(value));
+  return TIME_FORMATTER.format(new Date(value));
 }
 function dateOf(value: string, options?: Intl.DateTimeFormatOptions) {
   return new Intl.DateTimeFormat("vi-VN", {
@@ -48,8 +51,7 @@ function dateOf(value: string, options?: Intl.DateTimeFormatOptions) {
   }).format(new Date(value));
 }
 function dayLabel(date: string) {
-  return new Intl.DateTimeFormat("vi-VN", { timeZone: "UTC", weekday: "short" })
-    .format(new Date(`${date}T12:00:00Z`));
+  return WEEKDAY_FORMATTER.format(new Date(`${date}T12:00:00Z`));
 }
 function labelForStatus(status: MatchStatus) {
   return status === "live" ? "Đang diễn ra" : status === "finished" ? "Kết thúc"
