@@ -13,6 +13,8 @@ const chrome = process.env.CHROME_PATH ?? (process.platform === 'win32'
 const reportPath = path.resolve(process.env.SPORTS247_AUDIT_OUTPUT ?? 'temp/sports247-browser-audit.json');
 const axePath = path.resolve('node_modules/axe-core/axe.min.js');
 const sampleCount = Number(process.env.SPORTS247_AUDIT_RUNS ?? 3);
+const motionMode = process.env.SPORTS247_AUDIT_MOTION ?? 'reduce';
+const profileMobile = process.env.SPORTS247_AUDIT_CPU_PROFILE === '1';
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const median = (values) => {
   const sorted = values.filter((value) => typeof value === 'number' && Number.isFinite(value)).sort((a, b) => a - b);
@@ -62,7 +64,7 @@ async function evaluate(expression) {
 }
 
 const installObservers = `(() => {
-  window.__sports247Lab = { lcp: null, lcpElement: null, cls: 0, layoutShifts: 0 };
+  window.__sports247Lab = { lcp: null, lcpElement: null, cls: 0, layoutShifts: 0, longTasks: [] };
   if (PerformanceObserver.supportedEntryTypes.includes('largest-contentful-paint')) {
     new PerformanceObserver(list => {
       for (const item of list.getEntries()) {
@@ -87,12 +89,21 @@ const installObservers = `(() => {
       }
     }).observe({ type: 'layout-shift', buffered: true });
   }
+  if (PerformanceObserver.supportedEntryTypes.includes('longtask')) {
+    new PerformanceObserver(list => {
+      for (const item of list.getEntries()) {
+        window.__sports247Lab.longTasks.push({ start: item.startTime, duration: item.duration });
+      }
+    }).observe({ type: 'longtask', buffered: true });
+  }
 })()`;
 
 const inspectPage = `(() => {
   const nav = performance.getEntriesByType('navigation')[0];
   const paint = performance.getEntriesByType('paint');
   const fcp = paint.find(entry => entry.name === 'first-contentful-paint');
+  const longTasks = (window.__sports247Lab?.longTasks ?? [])
+    .filter(entry => fcp && entry.start >= fcp.startTime);
   const visible = node => {
     const rect = node.getBoundingClientRect();
     const style = getComputedStyle(node);
@@ -120,6 +131,9 @@ const inspectPage = `(() => {
     lcpElement: window.__sports247Lab?.lcpElement ?? null,
     cls: window.__sports247Lab ? Number(window.__sports247Lab.cls.toFixed(4)) : null,
     layoutShifts: window.__sports247Lab?.layoutShifts ?? null,
+    longTaskCount: longTasks.length,
+    longestTaskMs: Math.round(Math.max(0, ...longTasks.map(entry => entry.duration))),
+    blockingTimeObservedMs: Math.round(longTasks.reduce((total, entry) => total + Math.max(0, entry.duration - 50), 0)),
     ttfbMs: nav ? Math.round(nav.responseStart - nav.requestStart) : null,
     domContentLoadedMs: nav ? Math.round(nav.domContentLoadedEventEnd) : null,
     unnamedControls,
@@ -252,6 +266,8 @@ async function reviewGradientContrast(incomplete) {
 try {
   assert.ok(Number.isInteger(sampleCount) && sampleCount >= 1 && sampleCount <= 5,
     'SPORTS247_AUDIT_RUNS must be an integer between 1 and 5');
+  assert.ok(['reduce', 'no-preference'].includes(motionMode),
+    'SPORTS247_AUDIT_MOTION must be reduce or no-preference');
   assert.ok(existsSync(chrome), `Chrome executable is unavailable: ${chrome}`);
   assert.ok(existsSync(axePath), 'Accessibility audit requires axe-core (run npm ci)');
   const target = new URL(base);
@@ -260,7 +276,8 @@ try {
     '--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-extensions',
     '--disable-background-networking', '--disable-gpu', '--disable-dev-shm-usage',
     '--no-sandbox', '--remote-debugging-port=0', `--user-data-dir=${profile}`,
-    '--force-prefers-reduced-motion', 'about:blank',
+    ...(motionMode === 'reduce' ? ['--force-prefers-reduced-motion'] : []),
+    'about:blank',
   ], { windowsHide: true, stdio: 'ignore' });
   const port = await waitFor(async () => {
     const data = await readFile(path.join(profile, 'DevToolsActivePort'), 'utf8');
@@ -288,8 +305,12 @@ try {
   await send('Network.enable');
   await send('Network.setCacheDisabled', { cacheDisabled: true });
   await send('Performance.enable');
+  if (profileMobile) await send('Profiler.enable');
   await send('Page.addScriptToEvaluateOnNewDocument', { source: installObservers });
   const runs = [];
+  let cpuProfile = null;
+  let cpuProfileLongTasks = null;
+  let cpuProfileAligned = null;
   const accessibility = {};
   const contrastReview = {};
   const axeSource = await readFile(axePath, 'utf8');
@@ -307,6 +328,8 @@ try {
       downloadThroughput: preset.download, uploadThroughput: preset.upload,
     });
     for (let sample = 1; sample <= sampleCount; sample += 1) {
+      const profiling = profileMobile && preset.name === 'mobile' && sample === 1;
+      if (profiling) await send('Profiler.start');
       await send('Page.navigate', { url: target.href });
       try {
         await waitFor(() => evaluate(`document.readyState === 'complete' && !!document.querySelector('.app-shell')`), 75000);
@@ -315,9 +338,72 @@ try {
         throw new Error(`${preset.name} did not render: ${error.message}; diagnostics=${JSON.stringify(diagnostics)}`);
       }
       await pause(3200);
+      let sampledProfile = null;
+      if (profiling) {
+        ({ profile: sampledProfile } = await send('Profiler.stop'));
+      }
       const page = await evaluate(inspectPage);
       const raw = await send('Performance.getMetrics');
       const metrics = Object.fromEntries((raw.metrics ?? []).map((entry) => [entry.name, entry.value]));
+      if (profiling) {
+        const nodes = new Map(sampledProfile.nodes.map((node) => [node.id, node]));
+        const elapsed = new Map();
+        const samples = sampledProfile.samples ?? [];
+        const timeDeltas = sampledProfile.timeDeltas ?? [];
+        const observedLongTasks = await evaluate(`(() => {
+          const fcp = performance.getEntriesByType('paint')
+            .find(entry => entry.name === 'first-contentful-paint');
+          return (window.__sports247Lab?.longTasks ?? [])
+            .filter(task => fcp && task.start >= fcp.startTime)
+            .map(task => ({ startMs: Math.round(task.start), durationMs: Math.round(task.duration) }));
+        })()`);
+        const navigationStartMs = metrics.NavigationStart * 1000;
+        const aligned = Number.isFinite(navigationStartMs) &&
+          sampledProfile.startTime / 1000 - navigationStartMs < 500 &&
+          sampledProfile.endTime / 1000 - navigationStartMs > 0;
+        cpuProfileAligned = aligned;
+        const longTaskSamples = observedLongTasks.map((task) => ({ ...task, nodes: new Map() }));
+        let sampleTimeUs = sampledProfile.startTime;
+        for (let index = 0; index < samples.length; index += 1) {
+          const id = samples[index];
+          const deltaUs = timeDeltas[index] ?? 0;
+          const intervalStartMs = sampleTimeUs / 1000 - navigationStartMs;
+          sampleTimeUs += deltaUs;
+          const intervalEndMs = sampleTimeUs / 1000 - navigationStartMs;
+          elapsed.set(id, (elapsed.get(id) ?? 0) + deltaUs);
+          if (!aligned) continue;
+          for (const task of longTaskSamples) {
+            const overlapMs = Math.max(0, Math.min(intervalEndMs, task.startMs + task.durationMs) -
+              Math.max(intervalStartMs, task.startMs));
+            if (overlapMs > 0) task.nodes.set(id, (task.nodes.get(id) ?? 0) + overlapMs);
+          }
+        }
+        cpuProfile = [...elapsed.entries()].map(([id, microseconds]) => {
+          const frame = nodes.get(id)?.callFrame;
+          return {
+            function: frame?.functionName || '(anonymous)',
+            script: frame?.url?.replace(target.origin, '') || '(internal)',
+            line: frame?.lineNumber === undefined ? null : frame.lineNumber + 1,
+            sampledMs: Math.round(microseconds / 1000),
+          };
+        }).filter((entry) => entry.sampledMs >= 2)
+          .sort((a, b) => b.sampledMs - a.sampledMs).slice(0, 20);
+        cpuProfileLongTasks = longTaskSamples.map((task) => ({
+          startMs: task.startMs,
+          durationMs: task.durationMs,
+          frames: [...task.nodes.entries()].map(([id, sampledMs]) => {
+            const frame = nodes.get(id)?.callFrame;
+            return {
+              function: frame?.functionName || '(anonymous)',
+              script: frame?.url?.replace(target.origin, '') || '(internal)',
+              sampledMs: Math.round(sampledMs),
+            };
+          }).filter((entry) => entry.script !== '(internal)' && entry.sampledMs >= 2)
+            .sort((a, b) => b.sampledMs - a.sampledMs).slice(0, 5),
+        }));
+        console.log(`Mobile CPU profile top frames (diagnostic run only): ${JSON.stringify(cpuProfile)}`);
+        console.log(`Mobile long-task CPU alignment (${aligned ? 'available' : 'unavailable'}): ${JSON.stringify(cpuProfileLongTasks)}`);
+      }
       const result = {
         preset: preset.name,
         sample,
@@ -414,12 +500,20 @@ try {
       ttfbMs: median(selection.map((run) => run.ttfbMs)),
       domContentLoadedMs: median(selection.map((run) => run.domContentLoadedMs)),
       jsHeapMb: median(selection.map((run) => run.jsHeapMb)),
+      longTaskCount: median(selection.map((run) => run.longTaskCount)),
+      longestTaskMs: median(selection.map((run) => run.longestTaskMs)),
+      blockingTimeObservedMs: median(selection.map((run) => run.blockingTimeObservedMs)),
       matchRows: selection.map((run) => run.matchRows),
     }];
   }));
   const report = {
     kind: 'Chrome lab metrics (not Lighthouse or field Core Web Vitals)',
-    at: new Date().toISOString(), base: target.origin, errors, summary, runs, accessibility, contrastReview,
+    blockingTimeNote: 'Blocking time is sampled from first contentful paint to the lab snapshot (~3.2 seconds after load). It is a diagnostic proxy, not Lighthouse Total Blocking Time.',
+    at: new Date().toISOString(), base: target.origin, motionMode, errors, summary, runs, accessibility, contrastReview,
+    ...(profileMobile ? {
+      cpuProfile, cpuProfileAligned, cpuProfileLongTasks,
+      cpuProfileNote: 'One sampled mobile run with profiling overhead. Long-task attribution uses sampled frame intervals aligned to Chrome NavigationStart. Estimates are not Lighthouse TBT or exact script execution time.',
+    } : {}),
   };
   await mkdir(path.dirname(reportPath), { recursive: true });
   await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n');

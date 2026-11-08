@@ -16,6 +16,16 @@ const chrome = process.env.CHROME_PATH ?? (process.platform === 'win32'
   : '/usr/bin/google-chrome');
 // Preserve any screenshots curated in docs/qa unless an output directory is explicitly requested.
 const outputDir = path.resolve(process.env.SPORTS247_QA_OUTPUT_DIR ?? 'temp/qa-browser');
+const loadableManifestPath = path.resolve('.next/react-loadable-manifest.json');
+const loadableManifest = existsSync(loadableManifestPath)
+  ? JSON.parse(await readFile(loadableManifestPath, 'utf8'))
+  : null;
+const dialogManifestEntry = loadableManifest && Object.entries(loadableManifest)
+  .find(([key]) => key.endsWith(' -> @/components/match-dialog'))?.[1];
+if (loadableManifest) {
+  assert.ok(dialogManifestEntry?.files?.length, 'Match detail modal must have a separate lazy-loaded chunk');
+}
+const dialogChunk = dialogManifestEntry?.files.find((file) => file.endsWith('.js'));
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const profile = await mkdtemp(path.join(tmpdir(), 'sports247-chrome-'));
 let browser;
@@ -512,8 +522,20 @@ try {
   await send('Page.navigate', { url: base });
   await waitFor(() => evaluate(`document.readyState === 'complete' && !!document.querySelector('.spotlight-open, .match-open')`), 30000);
 
+  if (dialogChunk) {
+    const loadedBeforeOpen = await evaluate(`performance.getEntriesByType('resource').some(
+      (entry) => new URL(entry.name).pathname.endsWith(${JSON.stringify(dialogChunk)})
+    )`);
+    assert.equal(loadedBeforeOpen, false, 'Match detail chunk loaded before a match was opened');
+  }
   await evaluate(`(() => { const opener = document.querySelector('.spotlight-open, .match-open'); opener?.focus(); opener?.click(); })()`);
   await waitFor(() => evaluate(`!!document.querySelector('[role="dialog"]')`), 10000);
+  if (dialogChunk) {
+    await waitFor(() => evaluate(`performance.getEntriesByType('resource').some(
+      (entry) => new URL(entry.name).pathname.endsWith(${JSON.stringify(dialogChunk)})
+    )`), 10000);
+    checks.push({ viewport: 'desktop', matchDetailChunk: 'loaded on modal open PASS' });
+  }
   assert.equal(await evaluate(`!!document.querySelector('.dialog-league-label .league-badge')`), true,
     'Match detail dialog has no competition logo');
   await waitFor(() => evaluate(`document.activeElement === document.querySelector('.match-dialog .icon-button')`), 10000);

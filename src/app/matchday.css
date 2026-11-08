@@ -191,6 +191,7 @@ body { background: var(--paper); color: var(--ink); }
 .match-team .team-badge { width: 32px !important; height: 32px !important; }
 .match-team .team-image { filter: drop-shadow(0 3px 4px var(--stadium-black)); }
 .match-clock { color: var(--ink); }
+.match-clock small { color: var(--ink-soft); }
 .match-scores { color: var(--ink); font-size: 18px; }
 .match-scores.scores-live { color: var(--red); }
 .match-minute { color: var(--red); }
