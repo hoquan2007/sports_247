@@ -177,6 +177,25 @@ try {
     checks.push({ viewport: viewport.name, speedInsights });
     const before = await inspect(viewport.name);
     console.log(`${viewport.name} browser diagnostics: ${JSON.stringify(before)}`);
+    const standingsBeforeScroll = await evaluate(`(() => {
+      const card = document.querySelector('.standings-card');
+      const top = card?.getBoundingClientRect().top ?? 0;
+      return {
+        distanceBeyondViewport: Math.round(top - innerHeight),
+        tableRows: card?.querySelectorAll('.standings-table tbody tr').length ?? 0,
+        requests: performance.getEntriesByType('resource').filter(entry =>
+          new URL(entry.name).pathname === '/api/standings').length,
+      };
+    })()`);
+    // When the card is outside the observer's 400px prefetch margin, its API
+    // request and table must remain deferred until the user approaches it.
+    if (standingsBeforeScroll.distanceBeyondViewport > 410) {
+      assert.equal(standingsBeforeScroll.tableRows, 0,
+        `${viewport.name}: offscreen standings rendered before entering the prefetch margin`);
+      assert.equal(standingsBeforeScroll.requests, 0,
+        `${viewport.name}: offscreen standings requested data before entering the prefetch margin`);
+    }
+    checks.push({ viewport: viewport.name, standingsBeforeScroll });
     assert.ok(before.hasSpotlight, `${viewport.name}: no spotlight`);
     assert.ok(before.leagueBadges >= DISPLAY_LEAGUES.length, `${viewport.name}: fewer than ${DISPLAY_LEAGUES.length} competition badges`);
     assert.equal(before.competitionOptions, DISPLAY_LEAGUES.length, `${viewport.name}: missing listed competitions`);
@@ -329,6 +348,9 @@ try {
     await evaluate(`document.querySelector('.standings-card')?.scrollIntoView({ block: 'center', behavior: 'instant' })`);
     // Confirm ESPN standings and the accessible full-screen table on desktop and mobile.
     await waitFor(() => evaluate(`document.querySelectorAll('.standings-card .standings-table tbody tr').length >= 6`), 20000);
+    const standingsRequests = await evaluate(`performance.getEntriesByType('resource').filter(entry =>
+      new URL(entry.name).pathname === '/api/standings').length`);
+    assert.ok(standingsRequests >= 1, `${viewport.name}: standings data was not fetched after scrolling into view`);
     const standings = await evaluate(`(() => {
       const button = document.querySelector('.standings-expand');
       return { rows: document.querySelectorAll('.standings-card > .standings-table-wrap tbody tr').length, canExpand: !!button };
