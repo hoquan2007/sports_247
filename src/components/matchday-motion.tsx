@@ -99,7 +99,7 @@ export function MatchdayMascot({ event }: { event: GoalEvent | null }) {
     const dock = dockRef.current;
     if (!dock) return;
     if (window.innerWidth > 690) {
-      dock.dataset.compact = "false";
+      if (dock.dataset.compact !== "false") dock.dataset.compact = "false";
       return;
     }
 
@@ -114,7 +114,8 @@ export function MatchdayMascot({ event }: { event: GoalEvent | null }) {
       return mascot.left < area.right + 6 && mascot.right > area.left - 6 &&
         mascot.top < area.bottom + 6 && mascot.bottom > area.top - 6;
     });
-    dock.dataset.compact = String(nearContent);
+    const compact = String(nearContent);
+    if (dock.dataset.compact !== compact) dock.dataset.compact = compact;
   }, []);
 
   const syncRoaming = useCallback(() => {
@@ -164,6 +165,7 @@ export function MatchdayMascot({ event }: { event: GoalEvent | null }) {
 
       const timeline = gsap.timeline({ repeat: -1, repeatDelay: 1.2, paused: true });
       let previous = { x: 0, y: 0 };
+      let lastCompactSync = 0;
       for (const stop of stops) {
         const distance = Math.hypot(stop.x - previous.x, stop.y - previous.y);
         timeline.to(dock, {
@@ -176,9 +178,17 @@ export function MatchdayMascot({ event }: { event: GoalEvent | null }) {
             if (dock.dataset.walking !== "true") dock.dataset.walking = "true";
             const side = Number(gsap.getProperty(dock, "x")) < -travelX / 2 ? "left" : "right";
             if (dock.dataset.side !== side) dock.dataset.side = side;
+            // Bounds checks can force layout; limit them during perpetual roaming.
+            const now = performance.now();
+            if (now - lastCompactSync >= 100) {
+              syncCompact();
+              lastCompactSync = now;
+            }
+          },
+          onComplete: () => {
+            dock.dataset.walking = "false";
             syncCompact();
           },
-          onComplete: () => { dock.dataset.walking = "false"; },
         }, "+=1.1");
         previous = stop;
       }
