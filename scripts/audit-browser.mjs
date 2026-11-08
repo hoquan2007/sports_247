@@ -309,6 +309,8 @@ try {
   await send('Page.addScriptToEvaluateOnNewDocument', { source: installObservers });
   const runs = [];
   let cpuProfile = null;
+  let cpuProfileLongTasks = null;
+  let cpuProfileAligned = null;
   const accessibility = {};
   const contrastReview = {};
   const axeSource = await readFile(axePath, 'utf8');
@@ -336,13 +338,45 @@ try {
         throw new Error(`${preset.name} did not render: ${error.message}; diagnostics=${JSON.stringify(diagnostics)}`);
       }
       await pause(3200);
+      let sampledProfile = null;
       if (profiling) {
-        const { profile } = await send('Profiler.stop');
-        const nodes = new Map(profile.nodes.map((node) => [node.id, node]));
+        ({ profile: sampledProfile } = await send('Profiler.stop'));
+      }
+      const page = await evaluate(inspectPage);
+      const raw = await send('Performance.getMetrics');
+      const metrics = Object.fromEntries((raw.metrics ?? []).map((entry) => [entry.name, entry.value]));
+      if (profiling) {
+        const nodes = new Map(sampledProfile.nodes.map((node) => [node.id, node]));
         const elapsed = new Map();
-        for (let index = 0; index < (profile.samples ?? []).length; index += 1) {
-          const id = profile.samples[index];
-          elapsed.set(id, (elapsed.get(id) ?? 0) + (profile.timeDeltas?.[index] ?? 0));
+        const samples = sampledProfile.samples ?? [];
+        const timeDeltas = sampledProfile.timeDeltas ?? [];
+        const observedLongTasks = await evaluate(`(() => {
+          const fcp = performance.getEntriesByType('paint')
+            .find(entry => entry.name === 'first-contentful-paint');
+          return (window.__sports247Lab?.longTasks ?? [])
+            .filter(task => fcp && task.start >= fcp.startTime)
+            .map(task => ({ startMs: Math.round(task.start), durationMs: Math.round(task.duration) }));
+        })()`);
+        const navigationStartMs = metrics.NavigationStart * 1000;
+        const aligned = Number.isFinite(navigationStartMs) &&
+          sampledProfile.startTime / 1000 - navigationStartMs < 500 &&
+          sampledProfile.endTime / 1000 - navigationStartMs > 0;
+        cpuProfileAligned = aligned;
+        const longTaskSamples = observedLongTasks.map((task) => ({ ...task, nodes: new Map() }));
+        let sampleTimeUs = sampledProfile.startTime;
+        for (let index = 0; index < samples.length; index += 1) {
+          const id = samples[index];
+          const deltaUs = timeDeltas[index] ?? 0;
+          const intervalStartMs = sampleTimeUs / 1000 - navigationStartMs;
+          sampleTimeUs += deltaUs;
+          const intervalEndMs = sampleTimeUs / 1000 - navigationStartMs;
+          elapsed.set(id, (elapsed.get(id) ?? 0) + deltaUs);
+          if (!aligned) continue;
+          for (const task of longTaskSamples) {
+            const overlapMs = Math.max(0, Math.min(intervalEndMs, task.startMs + task.durationMs) -
+              Math.max(intervalStartMs, task.startMs));
+            if (overlapMs > 0) task.nodes.set(id, (task.nodes.get(id) ?? 0) + overlapMs);
+          }
         }
         cpuProfile = [...elapsed.entries()].map(([id, microseconds]) => {
           const frame = nodes.get(id)?.callFrame;
@@ -354,11 +388,22 @@ try {
           };
         }).filter((entry) => entry.sampledMs >= 2)
           .sort((a, b) => b.sampledMs - a.sampledMs).slice(0, 20);
+        cpuProfileLongTasks = longTaskSamples.map((task) => ({
+          startMs: task.startMs,
+          durationMs: task.durationMs,
+          frames: [...task.nodes.entries()].map(([id, sampledMs]) => {
+            const frame = nodes.get(id)?.callFrame;
+            return {
+              function: frame?.functionName || '(anonymous)',
+              script: frame?.url?.replace(target.origin, '') || '(internal)',
+              sampledMs: Math.round(sampledMs),
+            };
+          }).filter((entry) => entry.script !== '(internal)' && entry.sampledMs >= 2)
+            .sort((a, b) => b.sampledMs - a.sampledMs).slice(0, 5),
+        }));
         console.log(`Mobile CPU profile top frames (diagnostic run only): ${JSON.stringify(cpuProfile)}`);
+        console.log(`Mobile long-task CPU alignment (${aligned ? 'available' : 'unavailable'}): ${JSON.stringify(cpuProfileLongTasks)}`);
       }
-      const page = await evaluate(inspectPage);
-      const raw = await send('Performance.getMetrics');
-      const metrics = Object.fromEntries((raw.metrics ?? []).map((entry) => [entry.name, entry.value]));
       const result = {
         preset: preset.name,
         sample,
@@ -465,7 +510,10 @@ try {
     kind: 'Chrome lab metrics (not Lighthouse or field Core Web Vitals)',
     blockingTimeNote: 'Blocking time is sampled from first contentful paint to the lab snapshot (~3.2 seconds after load). It is a diagnostic proxy, not Lighthouse Total Blocking Time.',
     at: new Date().toISOString(), base: target.origin, motionMode, errors, summary, runs, accessibility, contrastReview,
-    ...(profileMobile ? { cpuProfile, cpuProfileNote: 'One sampled mobile run, with profiling overhead. Frame times are estimates, not Lighthouse TBT.' } : {}),
+    ...(profileMobile ? {
+      cpuProfile, cpuProfileAligned, cpuProfileLongTasks,
+      cpuProfileNote: 'One sampled mobile run with profiling overhead. Long-task attribution uses sampled frame intervals aligned to Chrome NavigationStart. Estimates are not Lighthouse TBT or exact script execution time.',
+    } : {}),
   };
   await mkdir(path.dirname(reportPath), { recursive: true });
   await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n');
