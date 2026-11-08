@@ -325,6 +325,8 @@ try {
     await capture(`${viewport.name}.png`);
     screenshots.push(`${viewport.name}.png`);
     checks.push(before);
+    // Deferred standings load when their sidebar card approaches the viewport.
+    await evaluate(`document.querySelector('.standings-card')?.scrollIntoView({ block: 'center', behavior: 'instant' })`);
     // Confirm ESPN standings and the accessible full-screen table on desktop and mobile.
     await waitFor(() => evaluate(`document.querySelectorAll('.standings-card .standings-table tbody tr').length >= 6`), 20000);
     const standings = await evaluate(`(() => {

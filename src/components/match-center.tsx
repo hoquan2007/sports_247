@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import dynamic from "next/dynamic";
 import { useGSAP } from "@gsap/react";
 import { Button as AnimatedButton } from "@animate-ui/react/primitives/buttons/button";
 import { Fade } from "@animate-ui/react/primitives/effects/fade";
@@ -15,7 +16,6 @@ import {
 } from "lucide-react";
 import { BallLoading, MatchdayIntro, MatchdayMascot } from "@/components/matchday-motion";
 import { LeagueBadge } from "@/components/league-badge";
-import { LeagueStandings } from "@/components/league-standings";
 import { detectGoalEvent, type GoalEvent } from "@/lib/football/goal-event";
 import { FAVORITES_STORAGE_KEY, parseFavoriteIds, readFavoriteIds, writeFavoriteIds } from "@/lib/football/favorites";
 import { reconcileFeed } from "@/lib/football/feed-state";
@@ -29,6 +29,7 @@ import type { WatchResult } from "@/lib/football/watch";
 
 gsap.registerPlugin(useGSAP);
 const DISPLAY_LEAGUES = [...LEAGUES, ...VIETNAM_LEAGUES];
+const LeagueStandings = dynamic(() => import("@/components/league-standings").then((module) => module.LeagueStandings));
 const COMPETITION_ORDER = new Map(DISPLAY_LEAGUES.map((league, index) => [league.id, index]));
 const EXTRA_STATUS_FILTERS = [
   { id: "postponed", label: "Tạm hoãn" },
@@ -74,6 +75,35 @@ function TeamBadge({ team, size = 32, eager = false }: { team: FootballTeam; siz
       )}
     </span>
   );
+}
+
+function DeferredStandings({ leagueId }: { leagueId: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (visible || !containerRef.current) return;
+    if (typeof IntersectionObserver === "undefined") {
+      const frame = window.requestAnimationFrame(() => setVisible(true));
+      return () => window.cancelAnimationFrame(frame);
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setVisible(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: "400px 0px" });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [visible]);
+
+  return <div ref={containerRef}>
+    {visible ? <LeagueStandings leagueId={leagueId} /> :
+      <section className="sidebar-card standings-card" aria-labelledby="standings-heading">
+        <div className="aside-heading"><div><span className="eyebrow">Thứ hạng các đội</span><h3 id="standings-heading">Bảng xếp hạng</h3></div><Trophy size={18} /></div>
+        <div className="standings-empty" role="status">Bảng xếp hạng sẽ tải khi bạn cuộn tới đây.</div>
+      </section>}
+  </div>;
 }
 
 function LiveMark({ compact = false }: { compact?: boolean }) {
@@ -922,7 +952,7 @@ export function MatchCenter({ initialFeed, initialFilters }: { initialFeed: Matc
                   Lịch V.League 1 &amp; V.League 2 trên VPF <ExternalLink size={14} />
                 </a>
               </div>
-              <LeagueStandings leagueId={league} />
+              <DeferredStandings leagueId={league} />
               <div className="sidebar-card coverage-card">
                 <div className="aside-heading"><div><span className="eyebrow">Cập nhật tự động</span><h3>Theo từng phút</h3></div><Radio size={18} /></div>
                 <div className="coverage-illustration">
