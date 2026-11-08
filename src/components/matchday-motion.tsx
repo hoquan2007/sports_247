@@ -47,6 +47,8 @@ export function MatchdayIntro() {
   useGSAP(() => {
     if (!shouldAnimate || !rootRef.current) return;
     const timeline = gsap.timeline({ onComplete: skip });
+    // Let the first-visit welcome play on mobile without delaying match content.
+    if (window.matchMedia("(max-width: 690px)").matches) timeline.timeScale(2);
     timeline.fromTo(".intro-football", { xPercent: -150, yPercent: 110, rotate: -95, scale: .35, opacity: .2 },
       { xPercent: 0, yPercent: 0, rotate: 0, scale: 1, opacity: 1, duration: .75, ease: "power3.out" })
       .to(".intro-football", { scale: 7, rotate: 100, duration: .66, ease: "power3.in" }, "+=.17")
