@@ -187,7 +187,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .loading-line { height: 3px; background: var(--line); border-radius: 3px; margin-bottom: 12px; overflow: hidden; }
 .loading-line span { display: block; height: 100%; width: 35%; background: var(--forest); animation: loader 1.5s ease-in-out infinite alternate; }
 .results-list { display: grid; gap: 16px; }
-.league-section { background: var(--white); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; box-shadow: 0 6px 16px -17px var(--tone-25); }
+.league-section { background: var(--white); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; box-shadow: 0 6px 16px -17px var(--tone-25); content-visibility: auto; }
 .league-row-head { display: flex; align-items: center; gap: 12px; padding: 17px 21px; border-bottom: 1px solid var(--line); background: var(--tone-26); }
 .league-icon { display: flex; align-items: center; justify-content: center; width: 39px; height: 39px; flex-shrink: 0; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--paper); font-size: 10px; font-weight: 850; color: var(--forest); }
 .league-badge { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 9px; background: #fff; vertical-align: middle; }
