@@ -911,7 +911,7 @@ export function MatchCenter({ initialFeed, initialFilters }: { initialFeed: Matc
                   const meta = DISPLAY_LEAGUES.find((item) => item.id === leagueId);
                   return (
                     <Fade asChild inView initialOpacity={0.92} key={leagueId}>
-                      <div className="league-section">
+                      <div className="league-section" style={{ containIntrinsicSize: `auto ${70 + matches.length * 100}px` }}>
                         <div className="league-row-head">
                           <LeagueBadge leagueId={leagueId} size={39} className="league-icon" />
                           <div><h3>{meta?.name ?? matches[0].leagueName}</h3><small>{meta?.country ?? matches[0].leagueCountry}</small></div>
