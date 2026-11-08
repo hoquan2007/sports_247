@@ -511,7 +511,8 @@ function MatchSpotlight({ matches, onOpen }: { matches: FootballMatch[]; onOpen:
   }, [paused, reduceMotion, prioritized.length]);
   useGSAP(() => {
     if (reduceMotion) return;
-    gsap.fromTo(".spotlight-body > *", { autoAlpha: 0, y: 12, scale: .985 },
+    // Keep the crests visible immediately, since they are the mobile LCP elements.
+    gsap.fromTo(".spotlight-center, .spotlight-club > strong, .spotlight-club > span", { autoAlpha: 0, y: 12, scale: .985 },
       { autoAlpha: 1, y: 0, scale: 1, stagger: .07, duration: .45, ease: "power2.out", clearProps: "all" });
   }, { scope: rootRef, dependencies: [index, reduceMotion, active?.id] });
 
