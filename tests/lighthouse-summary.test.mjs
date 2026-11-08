@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { summarizeLighthouse } from '../scripts/summarize-lighthouse.mjs';
+import { lighthouseDiagnostics, summarizeLighthouse } from '../scripts/summarize-lighthouse.mjs';
 
 function fixture(profile, score, lcpMs, tbtMs, cls = 0) {
   return {
@@ -38,4 +38,23 @@ test('rejects incomplete or cross-origin Lighthouse evidence', () => {
   records[0].report.finalDisplayedUrl = 'https://sports247-three.vercel.app/';
   records[0].report.audits['total-blocking-time'].numericValue = NaN;
   assert.throws(() => summarizeLighthouse(records), /Missing or invalid mobile tbtMs/);
+});
+
+test('reports the LCP target and largest JavaScript long task without requiring optional audits', () => {
+  const report = fixture('mobile', 0.84, 3160, 362).report;
+  assert.deepEqual(lighthouseDiagnostics(report), {
+    lcpElement: null, scriptEvaluationMs: null, largestLongTask: null, unusedJavaScriptKiB: 0,
+  });
+
+  report.audits['lcp-breakdown-insight'] = { details: { items: [{ type: 'node', selector: '.spotlight-club img' }] } };
+  report.audits['mainthread-work-breakdown'] = { details: { items: [{ group: 'scriptEvaluation', duration: 1266.7 }] } };
+  report.audits['long-tasks'] = { details: { items: [
+    { duration: 130, url: 'https://sports247-three.vercel.app/_next/static/chunks/page.js' },
+    { duration: 339, url: 'https://sports247-three.vercel.app/_next/static/chunks/vendor.js' },
+  ] } };
+  report.audits['unused-javascript'] = { details: { items: [{ wastedBytes: 43000 }, { wastedBytes: 41000 }] } };
+  assert.deepEqual(lighthouseDiagnostics(report), {
+    lcpElement: '.spotlight-club img', scriptEvaluationMs: 1267,
+    largestLongTask: { durationMs: 339, resource: 'vendor.js' }, unusedJavaScriptKiB: 82,
+  });
 });

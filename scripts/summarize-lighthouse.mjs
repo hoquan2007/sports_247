@@ -49,6 +49,28 @@ export function summarizeLighthouse(reports, origin = PRODUCTION_ORIGIN) {
   return summaries;
 }
 
+export function lighthouseDiagnostics(report) {
+  const audits = report.audits ?? {};
+  const lcpItems = audits['lcp-breakdown-insight']?.details?.items ?? [];
+  const lcpElement = lcpItems.find((item) => item.type === 'node')?.selector ?? null;
+  const scriptEvaluationMs = audits['mainthread-work-breakdown']?.details?.items
+    ?.find((item) => item.group === 'scriptEvaluation')?.duration;
+  const longTasks = audits['long-tasks']?.details?.items ?? [];
+  const largestTask = [...longTasks].sort((a, b) => b.duration - a.duration)[0];
+  const wastedScripts = audits['unused-javascript']?.details?.items ?? [];
+  const wastedJavaScriptBytes = wastedScripts.reduce((total, item) => total + (item.wastedBytes ?? 0), 0);
+
+  return {
+    lcpElement,
+    scriptEvaluationMs: Number.isFinite(scriptEvaluationMs) ? Math.round(scriptEvaluationMs) : null,
+    largestLongTask: largestTask ? {
+      durationMs: Math.round(largestTask.duration),
+      resource: largestTask.url?.split('/').pop()?.split('?')[0] || '(document)',
+    } : null,
+    unusedJavaScriptKiB: Math.round(wastedJavaScriptBytes / 1024),
+  };
+}
+
 async function main() {
   const directory = path.resolve(process.env.SPORTS247_LIGHTHOUSE_REPORT_DIR ?? 'temp/lighthouse-production');
   const reports = [];
@@ -61,12 +83,17 @@ async function main() {
   }
 
   const summary = summarizeLighthouse(reports);
+  const medianMobileReport = reports.filter((item) => item.profile === 'mobile')
+    .sort((a, b) => a.report.audits['largest-contentful-paint'].numericValue -
+      b.report.audits['largest-contentful-paint'].numericValue)[1].report;
+  const diagnostics = lighthouseDiagnostics(medianMobileReport);
   await mkdir(directory, { recursive: true });
   await writeFile(path.join(directory, 'summary.json'), JSON.stringify({
     commitSha: process.env.SPORTS247_EXPECTED_SHA ?? null,
     origin: PRODUCTION_ORIGIN,
     lighthouseVersion: reports[0].report.lighthouseVersion,
     summary,
+    medianMobileDiagnostics: diagnostics,
   }, null, 2));
 
   const lines = [
@@ -81,6 +108,14 @@ async function main() {
     }),
     '',
     'Synthetic Lighthouse measurements on GitHub-hosted Chrome. Field Web Vitals require real-user data.',
+    '',
+    '### Mobile median-LCP sample diagnostics',
+    `- LCP element: ${diagnostics.lcpElement ?? 'unavailable'}`,
+    `- JavaScript evaluation: ${diagnostics.scriptEvaluationMs ?? 'unavailable'} ms`,
+    `- Largest long task: ${diagnostics.largestLongTask ? `${diagnostics.largestLongTask.durationMs} ms (${diagnostics.largestLongTask.resource})` : 'unavailable'}`,
+    `- Estimated unused JavaScript: ${diagnostics.unusedJavaScriptKiB} KiB`,
+    '',
+    'These diagnostics identify investigation targets, not proven causes of LCP or TBT.',
   ];
   console.log(lines.join('\n'));
 
