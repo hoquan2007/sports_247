@@ -14,6 +14,7 @@ const reportPath = path.resolve(process.env.SPORTS247_AUDIT_OUTPUT ?? 'temp/spor
 const axePath = path.resolve('node_modules/axe-core/axe.min.js');
 const sampleCount = Number(process.env.SPORTS247_AUDIT_RUNS ?? 3);
 const motionMode = process.env.SPORTS247_AUDIT_MOTION ?? 'reduce';
+const profileMobile = process.env.SPORTS247_AUDIT_CPU_PROFILE === '1';
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const median = (values) => {
   const sorted = values.filter((value) => typeof value === 'number' && Number.isFinite(value)).sort((a, b) => a - b);
@@ -304,8 +305,10 @@ try {
   await send('Network.enable');
   await send('Network.setCacheDisabled', { cacheDisabled: true });
   await send('Performance.enable');
+  if (profileMobile) await send('Profiler.enable');
   await send('Page.addScriptToEvaluateOnNewDocument', { source: installObservers });
   const runs = [];
+  let cpuProfile = null;
   const accessibility = {};
   const contrastReview = {};
   const axeSource = await readFile(axePath, 'utf8');
@@ -323,6 +326,8 @@ try {
       downloadThroughput: preset.download, uploadThroughput: preset.upload,
     });
     for (let sample = 1; sample <= sampleCount; sample += 1) {
+      const profiling = profileMobile && preset.name === 'mobile' && sample === 1;
+      if (profiling) await send('Profiler.start');
       await send('Page.navigate', { url: target.href });
       try {
         await waitFor(() => evaluate(`document.readyState === 'complete' && !!document.querySelector('.app-shell')`), 75000);
@@ -331,6 +336,26 @@ try {
         throw new Error(`${preset.name} did not render: ${error.message}; diagnostics=${JSON.stringify(diagnostics)}`);
       }
       await pause(3200);
+      if (profiling) {
+        const { profile } = await send('Profiler.stop');
+        const nodes = new Map(profile.nodes.map((node) => [node.id, node]));
+        const elapsed = new Map();
+        for (let index = 0; index < (profile.samples ?? []).length; index += 1) {
+          const id = profile.samples[index];
+          elapsed.set(id, (elapsed.get(id) ?? 0) + (profile.timeDeltas?.[index] ?? 0));
+        }
+        cpuProfile = [...elapsed.entries()].map(([id, microseconds]) => {
+          const frame = nodes.get(id)?.callFrame;
+          return {
+            function: frame?.functionName || '(anonymous)',
+            script: frame?.url?.replace(target.origin, '') || '(internal)',
+            line: frame?.lineNumber === undefined ? null : frame.lineNumber + 1,
+            sampledMs: Math.round(microseconds / 1000),
+          };
+        }).filter((entry) => entry.sampledMs >= 2)
+          .sort((a, b) => b.sampledMs - a.sampledMs).slice(0, 20);
+        console.log(`Mobile CPU profile top frames (diagnostic run only): ${JSON.stringify(cpuProfile)}`);
+      }
       const page = await evaluate(inspectPage);
       const raw = await send('Performance.getMetrics');
       const metrics = Object.fromEntries((raw.metrics ?? []).map((entry) => [entry.name, entry.value]));
@@ -440,6 +465,7 @@ try {
     kind: 'Chrome lab metrics (not Lighthouse or field Core Web Vitals)',
     blockingTimeNote: 'Blocking time is sampled from first contentful paint to the lab snapshot (~3.2 seconds after load). It is a diagnostic proxy, not Lighthouse Total Blocking Time.',
     at: new Date().toISOString(), base: target.origin, motionMode, errors, summary, runs, accessibility, contrastReview,
+    ...(profileMobile ? { cpuProfile, cpuProfileNote: 'One sampled mobile run, with profiling overhead. Frame times are estimates, not Lighthouse TBT.' } : {}),
   };
   await mkdir(path.dirname(reportPath), { recursive: true });
   await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n');
