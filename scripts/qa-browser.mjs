@@ -90,7 +90,7 @@ try {
     '--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-extensions',
     '--disable-background-networking', '--disable-gpu', '--disable-dev-shm-usage',
     '--no-sandbox', '--remote-debugging-port=0', `--user-data-dir=${profile}`,
-    '--force-prefers-reduced-motion', 'about:blank',
+    'about:blank',
   ], { windowsHide: true, stdio: 'ignore' });
   const portFile = path.join(profile, 'DevToolsActivePort');
   const port = await waitFor(async () => {
@@ -116,6 +116,9 @@ try {
   });
 
   await send('Page.enable');
+  // Chrome starts with another about:blank tab. Activate our CDP target so the
+  // page is visible and CSS animations are not paused in headless CI.
+  await send('Page.bringToFront');
   await send('Runtime.enable');
   await send('Network.enable');
   await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
@@ -135,6 +138,7 @@ try {
     await send('Emulation.setDeviceMetricsOverride', { width: viewport.width, height: viewport.height, deviceScaleFactor: 1, mobile: viewport.mobile });
     await send('Page.navigate', { url: base });
     await waitFor(() => evaluate(`document.readyState === 'complete' && !!document.querySelector('.app-shell')`), 30000);
+    await waitFor(() => evaluate(`document.visibilityState === 'visible'`), 8000);
     // Trigger the browser's lazy images in the audit; screenshots still use native lazy loading.
     await evaluate(`document.querySelectorAll('.league-badge img').forEach(img => { img.loading = 'eager'; })`);
     await waitFor(() => evaluate(`(() => {
@@ -272,12 +276,15 @@ try {
     const activeMotion = await evaluate(`(async () => {
       const figure = document.querySelector('.mascot-figure');
       const animation = getComputedStyle(figure).animationName;
+      const playState = getComputedStyle(figure).animationPlayState;
+      const visibility = document.visibilityState;
+      const paused = document.querySelector('.mascot-dock').dataset.paused;
       const initial = getComputedStyle(figure).transform;
       await new Promise(resolve => setTimeout(resolve, 160));
-      return { animation, moves: getComputedStyle(figure).transform !== initial };
+      return { animation, playState, visibility, paused, moves: getComputedStyle(figure).transform !== initial };
     })()`);
     assert.equal(activeMotion.animation, 'mascot-dance', `${viewport.name}: interactive dance animation missing`);
-    assert.equal(activeMotion.moves, true, `${viewport.name}: mascot does not move with animation enabled`);
+    assert.equal(activeMotion.moves, true, `${viewport.name}: mascot does not move with animation enabled (${JSON.stringify(activeMotion)})`);
     await waitFor(() => evaluate(`!document.querySelector('.mascot-dock.is-playing')`), 7000);
     await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: viewport.width / 2, y: viewport.height / 2 });
     await waitFor(() => evaluate(`document.querySelector('.mascot-dock')?.dataset.walking === 'true'`), 7000);
