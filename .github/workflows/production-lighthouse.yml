@@ -1,0 +1,59 @@
+name: SPORTS247 production Lighthouse
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sports247-production-lighthouse
+  cancel-in-progress: true
+
+jobs:
+  lighthouse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Wait for the exact production commit
+        env:
+          SPORTS247_BASE_URL: https://sports247-three.vercel.app
+          SPORTS247_EXPECTED_SHA: ${{ github.sha }}
+        run: node scripts/wait-for-release.mjs
+      - name: Measure Lighthouse performance on production
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+        run: |
+          mkdir -p temp/lighthouse-production
+          for attempt in 1 2 3; do
+            npm exec --yes --package=lighthouse@13.6.0 -- lighthouse \
+              https://sports247-three.vercel.app/ \
+              --only-categories=performance \
+              --chrome-flags="--headless=new --no-sandbox --disable-dev-shm-usage" \
+              --output=json --output-path="temp/lighthouse-production/mobile-${attempt}.json" --quiet
+          done
+          npm exec --yes --package=lighthouse@13.6.0 -- lighthouse \
+            https://sports247-three.vercel.app/ \
+            --preset=desktop --only-categories=performance \
+            --chrome-flags="--headless=new --no-sandbox --disable-dev-shm-usage" \
+            --output=json --output-path=temp/lighthouse-production/desktop-1.json --quiet
+      - name: Summarize performance and flag budgets
+        env:
+          SPORTS247_LIGHTHOUSE_REPORT_DIR: temp/lighthouse-production
+          SPORTS247_EXPECTED_SHA: ${{ github.sha }}
+        run: node scripts/summarize-lighthouse.mjs
+      - name: Upload Lighthouse reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: sports247-production-lighthouse
+          path: temp/lighthouse-production
+          if-no-files-found: warn
+          retention-days: 14
