@@ -11,14 +11,14 @@ const date = '2026-10-31';
 const feed = { date, matches: [], partial: false, errors: [], failedLeagues: [], pendingLeagues: ['vie.1'] };
 const table = { leagueId: 'eng.1', groups: [{ entries: [{ name: 'Team' }] }] };
 
-function fakeFetch({ homepage = 200, matches = feed, standings = table } = {}) {
+function fakeFetch({ homepage = 200, homepageBody = '<html lang="vi">SPORTS247</html>', matches = feed, standings = table } = {}) {
   const calls = [];
   return {
     calls,
     fetchImpl: async (url) => {
       calls.push(new URL(url).pathname);
       const path = new URL(url).pathname;
-      if (path === '/') return new Response('<html>SPORTS247</html>', { status: homepage, headers: { 'content-type': 'text/html' } });
+      if (path === '/') return new Response(homepageBody, { status: homepage, headers: { 'content-type': 'text/html' } });
       if (path === '/api/matches') return Response.json(matches);
       if (path === '/api/standings') return Response.json(standings);
       throw new Error('Unexpected endpoint');
@@ -32,6 +32,30 @@ test('probes only free endpoints and keeps V.League pending informational', asyn
   assert.equal(result.status, 'PASS');
   assert.deepEqual(fake.calls, ['/', '/api/matches', '/api/standings']);
   assert.deepEqual(result.checks.find((check) => check.name === 'vietnam-feed')?.leagues, ['vie.1']);
+});
+
+test('detects Vercel login pages that happen to mention SPORTS247', async () => {
+  const loginPage = '<html lang="en-US"><body>Sign in to view sports247-hnquan.vercel.app</body></html>';
+  const result = await monitorProduction({ date, ...fakeFetch({ homepageBody: loginPage }) });
+  assert.equal(result.status, 'FAIL');
+  assert.match(result.errors.join(' '), /Homepage returned an unexpected document/);
+});
+
+test('detects cross-origin redirects even when the response resembles the app', async () => {
+  const fake = fakeFetch();
+  const result = await monitorProduction({
+    date,
+    fetchImpl: async (url) => {
+      const response = await fake.fetchImpl(url);
+      if (new URL(url).pathname === '/') {
+        Object.defineProperty(response, 'url', { value: 'https://vercel.com/login?next=private' });
+      }
+      return response;
+    },
+  });
+  assert.equal(result.status, 'FAIL');
+  assert.match(result.errors.join(' '), /unexpectedly redirected to https:\/\/vercel\.com\/login/);
+  assert.doesNotMatch(result.errors.join(' '), /next=private/);
 });
 
 test('fails on malformed response, unavailable homepage, and degraded upstream with strict mode', async () => {
