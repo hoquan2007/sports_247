@@ -31,5 +31,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "tools", ".taste-skill"]
+  "exclude": ["node_modules", "tools", ".taste-skill", "temp"]
 }

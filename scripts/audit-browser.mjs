@@ -10,9 +10,12 @@ const base = process.env.SPORTS247_BASE_URL ?? 'http://127.0.0.1:3199';
 const chrome = process.env.CHROME_PATH ?? (process.platform === 'win32'
   ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
   : '/usr/bin/google-chrome');
-const reportPath = path.resolve(process.env.SPORTS247_AUDIT_OUTPUT ?? 'temp/sports247-browser-audit.json');
+const reportPath = path.resolve(process.env.SPORTS247_AUDIT_OUTPUT ?? (process.env.SPORTS247_AUDIT_CPU_PROFILE === '1'
+  ? 'temp/sports247-browser-cpu-profile.json'
+  : 'temp/sports247-browser-audit.json'));
 const axePath = path.resolve('node_modules/axe-core/axe.min.js');
 const sampleCount = Number(process.env.SPORTS247_AUDIT_RUNS ?? 3);
+const fixtureDate = process.env.SPORTS247_AUDIT_DATE;
 const motionMode = process.env.SPORTS247_AUDIT_MOTION ?? 'reduce';
 const profileMobile = process.env.SPORTS247_AUDIT_CPU_PROFILE === '1';
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -266,12 +269,29 @@ async function reviewGradientContrast(incomplete) {
 try {
   assert.ok(Number.isInteger(sampleCount) && sampleCount >= 1 && sampleCount <= 5,
     'SPORTS247_AUDIT_RUNS must be an integer between 1 and 5');
+  assert.ok(!fixtureDate || (/^(?:(?:19|20)\d{2}|2100)-\d{2}-\d{2}$/.test(fixtureDate) &&
+    !Number.isNaN(Date.parse(`${fixtureDate}T00:00:00Z`)) &&
+    new Date(`${fixtureDate}T00:00:00Z`).toISOString().slice(0, 10) === fixtureDate),
+  'SPORTS247_AUDIT_DATE must be a calendar date in 1900–2100');
   assert.ok(['reduce', 'no-preference'].includes(motionMode),
     'SPORTS247_AUDIT_MOTION must be reduce or no-preference');
   assert.ok(existsSync(chrome), `Chrome executable is unavailable: ${chrome}`);
   assert.ok(existsSync(axePath), 'Accessibility audit requires axe-core (run npm ci)');
   const target = new URL(base);
   assert.ok(['http:', 'https:'].includes(target.protocol), 'Expected an HTTP(S) URL');
+  let expectedFixtures = null;
+  if (fixtureDate) {
+    target.searchParams.set('date', fixtureDate);
+    const feedUrl = new URL('/api/matches', target);
+    feedUrl.searchParams.set('date', fixtureDate);
+    const response = await fetch(feedUrl, { signal: AbortSignal.timeout(60000) });
+    assert.equal(response.status, 200, `Fixture preflight returned HTTP ${response.status}`);
+    const feed = await response.json();
+    assert.ok(Array.isArray(feed.matches), 'Fixture preflight returned an invalid match list');
+    expectedFixtures = feed.matches.length;
+    assert.ok(expectedFixtures > 0, `No fixtures were confirmed for ${fixtureDate}; choose a populated matchday`);
+    console.log(`Fixture preflight ${fixtureDate}: ${expectedFixtures} matches, partial=${feed.partial}`);
+  }
   browser = spawn(chrome, [
     '--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-extensions',
     '--disable-background-networking', '--disable-gpu', '--disable-dev-shm-usage',
@@ -338,6 +358,9 @@ try {
         throw new Error(`${preset.name} did not render: ${error.message}; diagnostics=${JSON.stringify(diagnostics)}`);
       }
       await pause(3200);
+      if (expectedFixtures !== null) {
+        await waitFor(() => evaluate(`document.querySelectorAll('.match-row').length > 0`), 20000);
+      }
       let sampledProfile = null;
       if (profiling) {
         ({ profile: sampledProfile } = await send('Profiler.stop'));
@@ -481,6 +504,7 @@ try {
   const errors = runs.flatMap((run) => [
     ...(!run.language ? [`${run.preset}: document language missing`] : []),
     ...(!run.mainCount || !run.headingCount ? [`${run.preset}: main/h1 missing`] : []),
+    ...(expectedFixtures !== null && run.matchRows === 0 ? [`${run.preset}: fixture list did not render`] : []),
     ...(run.pageWidth > run.viewportWidth + 1 ? [`${run.preset}: horizontal overflow ${run.pageWidth}px`] : []),
     ...(run.unnamedControls.length ? [`${run.preset}: ${run.unnamedControls.length} unnamed controls`] : []),
     ...(run.imagesWithoutAlt.length ? [`${run.preset}: ${run.imagesWithoutAlt.length} images without alt`] : []),
@@ -509,7 +533,8 @@ try {
   const report = {
     kind: 'Chrome lab metrics (not Lighthouse or field Core Web Vitals)',
     blockingTimeNote: 'Blocking time is sampled from first contentful paint to the lab snapshot (~3.2 seconds after load). It is a diagnostic proxy, not Lighthouse Total Blocking Time.',
-    at: new Date().toISOString(), base: target.origin, motionMode, errors, summary, runs, accessibility, contrastReview,
+    at: new Date().toISOString(), base: target.origin, fixtureDate: fixtureDate ?? null,
+    expectedFixtures, motionMode, errors, summary, runs, accessibility, contrastReview,
     ...(profileMobile ? {
       cpuProfile, cpuProfileAligned, cpuProfileLongTasks,
       cpuProfileNote: 'One sampled mobile run with profiling overhead. Long-task attribution uses sampled frame intervals aligned to Chrome NavigationStart. Estimates are not Lighthouse TBT or exact script execution time.',

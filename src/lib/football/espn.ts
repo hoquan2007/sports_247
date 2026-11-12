@@ -6,6 +6,7 @@ import { VIETNAM_LEAGUES } from "./vietnam-leagues";
 import { collectEspnOutcomes, markProviderRecovered } from "./provider-results";
 import { parseEspnScoreboard } from "./espn-fixtures";
 import { parseOpenLigaSeason } from "./openligadb-fixtures";
+import { selectBundesligaBackup } from "./bundesliga-backup";
 
 async function fetchEspn(league: (typeof LEAGUES)[number], day: string): Promise<{
   matches: FootballMatch[]; incomplete: boolean;
@@ -38,16 +39,22 @@ export async function getMatchFeed(date: string): Promise<MatchFeed> {
   const responses = await settleLimited(tasks.map(({ league, day }) => () => fetchEspn(league, day)), 16);
   const { matches, issues, failedLeagues: espnFailures } = collectEspnOutcomes<FootballMatch>(tasks, responses);
   const failedEspnLeagues = new Set(espnFailures);
-  const germanSuccess = responses.some((r, i) => tasks[i].league.id === "ger.1" && r.status === "fulfilled");
-  if (!germanSuccess) {
+  const germanAttempts = responses.flatMap((response, index) => {
+    if (tasks[index].league.id !== "ger.1") return [];
+    return [{
+      day: tasks[index].day,
+      healthy: response.status === "fulfilled" && !response.value.incomplete,
+      matches: response.status === "fulfilled" ? response.value.matches : [],
+    }];
+  });
+  if (germanAttempts.some((attempt) => !attempt.healthy)) {
     try {
       const backup = await fetchGermanBackup(date);
-      matches.push(...backup.matches);
-      // OpenLigaDB provides a full Bundesliga season. Keep its fresh fixtures
-      // authoritative instead of resurrecting duplicates from old ESPN data.
+      const supplemental = selectBundesligaBackup(germanAttempts, matches, backup);
+      matches.push(...supplemental.matches);
       if (backup.incomplete) {
         issues.push({ leagueId: "ger.1", message: "OpenLigaDB: dữ liệu Bundesliga chưa đầy đủ" });
-      } else {
+      } else if (supplemental.recovered) {
         markProviderRecovered("ger.1", failedEspnLeagues, issues);
       }
     }

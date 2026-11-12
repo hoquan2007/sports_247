@@ -12,7 +12,7 @@ export default async function Home({ searchParams }: {
 }) {
   const rawParams = await searchParams;
   const params = new URLSearchParams();
-  for (const key of ["date", "league", "status", "q"] as const) {
+  for (const key of ["date", "league", "status", "q", "team"] as const) {
     const value = rawParams[key];
     if (typeof value === "string") params.set(key, value);
     else if (Array.isArray(value) && typeof value[0] === "string") params.set(key, value[0]);

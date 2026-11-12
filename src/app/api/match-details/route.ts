@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LEAGUES } from "@/lib/football/leagues";
-import { getEspnMatchDetails } from "@/lib/football/match-details";
+import { getEspnMatchPage } from "@/lib/football/match-page";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,8 +14,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const details = await getEspnMatchDetails(league, event);
-    return NextResponse.json(details, {
+    const verified = await getEspnMatchPage(league, event);
+    if (!verified) {
+      return NextResponse.json({ error: "Không tìm thấy trận đấu khớp mã đã yêu cầu." }, { status: 404 });
+    }
+    return NextResponse.json(verified.details, {
       headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120" },
     });
   } catch {

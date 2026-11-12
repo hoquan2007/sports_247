@@ -125,3 +125,16 @@ test('Unrecognized and malformed provider sections are ignored safely', () => {
   assert.deepEqual(detail.lineups, []);
   assert.deepEqual(detail.events, []);
 });
+
+test('unidentified ESPN roster arrays never guess home and away teams by position', () => {
+  const detail = parseEspnMatchDetails({
+    header: sample.header,
+    rosters: [
+      { roster: [{ starter: true, athlete: { id: '7', displayName: 'Away player' } }] },
+      { roster: [{ starter: true, athlete: { id: '9', displayName: 'Home player' } }] },
+    ],
+  });
+  assert.equal(detail.homeId, '363');
+  assert.equal(detail.awayId, '360');
+  assert.deepEqual(detail.lineups, []);
+});

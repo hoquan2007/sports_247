@@ -40,6 +40,8 @@ try {
     assert.match(body, /SPORTS247/i);
   });
   await check('Reject bad date', '/api/matches?date=2026-02-31', 400);
+  await check('Reject date before supported range', '/api/matches?date=1899-12-31', 400);
+  await check('Reject date after supported range', '/api/matches?date=2101-01-01', 400);
   await check('Reject bad league for video', '/api/watch?league=invalid&event=401879248', 400);
   await check('Reject bad V.League event', '/api/watch?league=vie.1&event=not-an-id', 400);
   await check('V.League licensed-video adapter', '/api/watch?league=vie.1&event=1234567', 200, (body) => {
@@ -50,6 +52,9 @@ try {
     }
   });
   await check('Reject bad league for standings', '/api/standings?league=invalid', 400);
+  await check('Reject invalid match detail league', '/api/match-details?league=invalid&event=401879248', 400);
+  await check('Reject invalid match detail event', '/api/match-details?league=eng.1&event=not-an-event', 400);
+  await check('Reject invalid match permalink', '/match/invalid/not-an-event', 404);
   await check('Match feed', `/api/matches?date=${date}`, 200, (body) => {
     assert.equal(body.date, date);
     assert.ok(Array.isArray(body.matches));

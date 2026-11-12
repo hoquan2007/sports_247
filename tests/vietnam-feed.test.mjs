@@ -59,6 +59,30 @@ test('maps live and finished Vietnamese fixtures, strict league match, safe team
   const scheduled = fixture();
   scheduled.fixture.status.short = 'NS';
   assert.equal(mapVietnamFixture(scheduled, 'vie.1', 123, DAY).homeScore, null);
+  scheduled.fixture.status.short = 'TBD';
+  assert.equal(mapVietnamFixture(scheduled, 'vie.1', 123, DAY).status, 'scheduled');
+});
+
+test('unknown or missing V.League provider statuses are excluded and reported as partial', async () => {
+  for (const status of [{ short: 'FUTURE_STATUS', long: 'Unrecognized' }, undefined]) {
+    const bad = fixture();
+    bad.fixture.status = status;
+    assert.equal(mapVietnamFixture(bad, 'vie.1', 123, DAY), null);
+  }
+
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const division = new URL(url).searchParams.get('league') === '123' ? 1 : 2;
+    const unexpected = fixture(division);
+    unexpected.fixture.status.short = 'FUTURE_STATUS';
+    return new Response(JSON.stringify({ errors: [], response: [fixture(division), unexpected] }), { status: 200 });
+  };
+  try {
+    const result = await getVietnamMatches(DAY, validConfig);
+    assert.deepEqual(result.matches.map((entry) => entry.id), ['vie.1:901', 'vie.2:902']);
+    assert.deepEqual(result.failedLeagues, ['vie.1', 'vie.2']);
+    assert.equal(result.errors.length, 2);
+  } finally { globalThis.fetch = original; }
 });
 
 test('Vietnam fixture interruptions, postponements and cancellation retain accurate status and scores', () => {

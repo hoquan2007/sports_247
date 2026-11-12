@@ -176,8 +176,9 @@ function parseLineups(value: unknown, homeId: string | null, awayId: string | nu
   return entries.flatMap((entry, index) => {
     // Soccer summaries often pair rosters[] with boxscore.form[] by index,
     // without repeating the team id in the roster item itself.
-    const id = teamId(entry) ?? teamId(formTeams[index]) ??
-      (entries.length === 2 ? (index === 0 ? homeId : awayId) : null);
+    // ESPN can order roster arrays differently from home/away. Require a
+    // provider team identifier before attributing players to either club.
+    const id = teamId(entry) ?? teamId(formTeams[index]);
     if (!id || (id !== homeId && id !== awayId)) return [];
     const roster = list(prop(entry, "roster"));
     // Some soccer fixtures expose player records under boxscore.players[*].statistics[*].athletes.
@@ -273,15 +274,4 @@ export function parseEspnMatchDetails(value: unknown): MatchDetails {
     referee: str(nested(referee, "athlete", "displayName")) ?? str(prop(referee, "displayName")),
     updatedAt: new Date().toISOString(),
   };
-}
-
-export async function getEspnMatchDetails(leagueId: string, eventId: string): Promise<MatchDetails> {
-  const response = await fetch(
-    `https://site.api.espn.com/apis/site/v2/sports/soccer/${leagueId}/summary?event=${eventId}`,
-    { next: { revalidate: 60 }, signal: AbortSignal.timeout(9500), headers: { Accept: "application/json" } },
-  );
-  if (!response.ok) throw new Error(`ESPN summary HTTP ${response.status}`);
-  const payload: unknown = await response.json();
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("ESPN summary không hợp lệ");
-  return parseEspnMatchDetails(payload);
 }
