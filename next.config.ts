@@ -1,6 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    // Keep Windows static-page workers serial. Parallel prerender occasionally
+    // fails with EPERM while creating nested .next/server/app segment folders.
+    cpus: 1,
+  },
   images: {
     // ESPN crests use their image combiner; enable Next's resizing only for VPF badges.
     remotePatterns: [

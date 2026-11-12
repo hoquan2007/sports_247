@@ -38,24 +38,13 @@ function StandingsTable({ entries, full = false }: { entries: StandingEntry[]; f
 
 export function LeagueStandings({ leagueId }: { leagueId: string }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const [chosen, setChosen] = useState("eng.1");
+  const [chosen, setChosen] = useState(() => STANDINGS_LEAGUES.some((id) => id === leagueId) ? leagueId : "eng.1");
   const [groupIndex, setGroupIndex] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [data, setData] = useState<StandingFeed | null>(null);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [retry, setRetry] = useState(0);
-
-  useEffect(() => {
-    if (STANDINGS_LEAGUES.some((id) => id === leagueId)) {
-      dialogRef.current?.close();
-      setChosen(leagueId);
-      setGroupIndex(0);
-      setExpanded(false);
-      setData(null);
-      setLoading(true);
-    }
-  }, [leagueId]);
 
   useEffect(() => {
     const controller = new AbortController();

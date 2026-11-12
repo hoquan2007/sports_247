@@ -2,10 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import type React from "react";
-import { Activity, CalendarDays, ChevronRight, ExternalLink, Info, MapPin, RefreshCw, Trophy, Tv, X } from "lucide-react";
+import Link from "next/link";
+import { Activity, CalendarDays, ChevronRight, ExternalLink, Info, Link2, MapPin, RefreshCw, Trophy, Tv, X } from "lucide-react";
 import { LeagueBadge } from "@/components/league-badge";
 import { TeamBadge, LiveMark, dateOf, labelForStatus, timeOf } from "@/components/match-center-ui";
 import { isVietnamLeague } from "@/lib/football/vietnam-leagues";
+import { vietnamDate } from "@/lib/football/leagues";
+import { matchPermalink } from "@/lib/football/match-link";
 import type { DetailEvent, DetailLineup, DetailStatistic, MatchDetails } from "@/lib/football/match-details";
 import type { FootballMatch, FootballTeam } from "@/lib/football/types";
 import type { WatchResult } from "@/lib/football/watch";
@@ -95,19 +98,37 @@ function RecentForm({ team }: { team: FootballTeam }) {
   </div>;
 }
 
-export function MatchDialog({ match, onClose }: { match: FootballMatch; onClose: () => void }) {
+export function MatchDialog({ match, onClose, mode = "overlay", initialDetails = null }: {
+  match: FootballMatch;
+  onClose?: () => void;
+  mode?: "overlay" | "page";
+  initialDetails?: MatchDetails | null;
+}) {
   const dialogRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const activeDetailRequest = useRef<AbortController | null>(null);
   const [tab, setTab] = useState<DetailTab>("overview");
-  const [details, setDetails] = useState<MatchDetails | null>(null);
+  const [details, setDetails] = useState<MatchDetails | null>(initialDetails);
   const [detailError, setDetailError] = useState(false);
   const [retryNumber, setRetryNumber] = useState(0);
   const [watch, setWatch] = useState<WatchResult | null>(null);
   const [watchError, setWatchError] = useState(false);
   const [watchRetry, setWatchRetry] = useState(0);
+  const [shareStatus, setShareStatus] = useState<"idle" | "copied" | "unavailable">("idle");
   const supported = match.source === "ESPN";
+  const permalink = matchPermalink(match);
+  const calendarUrl = `/?date=${vietnamDate(match.startTime)}`;
   const watchSupported = supported || (match.source === "API-Football" && isVietnamLeague(match.leagueId));
+
+  const copyMatchLink = async () => {
+    if (!permalink) return;
+    try {
+      await navigator.clipboard.writeText(new URL(permalink, window.location.origin).href);
+      setShareStatus("copied");
+    } catch {
+      setShareStatus("unavailable");
+    }
+  };
 
   useEffect(() => {
     if (tab !== "watch" || !watchSupported) return;
@@ -128,12 +149,13 @@ export function MatchDialog({ match, onClose }: { match: FootballMatch; onClose:
   }, [tab, watchSupported, match.leagueId, match.eventId, watchRetry]);
 
   useEffect(() => {
+    if (mode === "page") return;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     closeRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { onClose(); return; }
+      if (event.key === "Escape") { onClose?.(); return; }
       if (event.key !== "Tab" || !dialogRef.current) return;
       const focusables = [...dialogRef.current.querySelectorAll<HTMLElement>(
         'button:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])',
@@ -149,10 +171,11 @@ export function MatchDialog({ match, onClose }: { match: FootballMatch; onClose:
       document.body.style.overflow = previousOverflow;
       previousFocus?.focus();
     };
-  }, [onClose]);
+  }, [onClose, mode]);
 
   useEffect(() => {
     if (!supported) return;
+    if (mode === "page" && initialDetails && match.status !== "live" && retryNumber === 0) return;
     let disposed = false;
     const load = async () => {
       // The latest live refresh wins even when a previous ESPN request is slow.
@@ -181,7 +204,7 @@ export function MatchDialog({ match, onClose }: { match: FootballMatch; onClose:
       activeDetailRequest.current = null;
       if (timer !== undefined) window.clearInterval(timer);
     };
-  }, [match.leagueId, match.eventId, match.status, retryNumber, supported]);
+  }, [match.leagueId, match.eventId, match.status, retryNumber, supported, mode, initialDetails]);
 
   const homeId = details?.homeId ?? match.home.id;
   const awayId = details?.awayId ?? match.away.id;
@@ -282,11 +305,16 @@ export function MatchDialog({ match, onClose }: { match: FootballMatch; onClose:
   };
 
   return (
-    <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="match-dialog" role="dialog" aria-modal="true" aria-label={`Chi tiết ${match.home.name} - ${match.away.name}`} ref={dialogRef}>
+    <div className={mode === "page" ? "match-page-shell" : "dialog-backdrop"} role="presentation"
+      onMouseDown={mode === "overlay" ? (event) => { if (event.target === event.currentTarget) onClose?.(); } : undefined}>
+      <section className={`match-dialog${mode === "page" ? " match-dialog-page" : ""}`}
+        role={mode === "page" ? "region" : "dialog"} aria-modal={mode === "page" ? undefined : true}
+        aria-label={`Chi tiết ${match.home.name} - ${match.away.name}`} ref={dialogRef}>
         <div className="dialog-topline">
           <span className="eyebrow dialog-league-label">TRUNG TÂM TRẬN ĐẤU <span className="dialog-separator">/</span> <LeagueBadge leagueId={match.leagueId} size={26} /> {match.leagueName}</span>
-          <button onClick={onClose} className="icon-button" aria-label="Đóng" ref={closeRef}><X size={20} /></button>
+          {mode === "page"
+            ? <Link href={calendarUrl} className="icon-button" aria-label="Trở về lịch thi đấu"><X size={20} /></Link>
+            : <button onClick={onClose} className="icon-button" aria-label="Đóng" ref={closeRef}><X size={20} /></button>}
         </div>
         <p className="dialog-datetime"><CalendarDays size={15} /> {dateOf(match.startTime)} · {timeOf(match.startTime)} (GMT+7)</p>
         <div className="dialog-scoreline">
@@ -333,6 +361,13 @@ export function MatchDialog({ match, onClose }: { match: FootballMatch; onClose:
         </div>
         <div className="detail-footer">
           <p><Activity size={14} /> Dữ liệu trận: {match.source}. Kênh phát sóng có thể dành cho thị trường khác; video trực tiếp tùy thuộc bản quyền khu vực.</p>
+          {permalink && <div className="detail-share-controls">
+            {mode === "overlay" && <Link className="dialog-link" href={permalink}>Trang trận đấu <ExternalLink size={15} /></Link>}
+            <button type="button" className="dialog-link" onClick={() => void copyMatchLink()}><Link2 size={15} /> Sao chép liên kết</button>
+            <span role="status" aria-live="polite" className="detail-share-status">
+              {shareStatus === "copied" ? "Đã sao chép" : shareStatus === "unavailable" ? "Không thể sao chép tự động" : ""}
+            </span>
+          </div>}
           {match.matchUrl && <a className="dialog-link" href={match.matchUrl} target="_blank" rel="noopener noreferrer">
             {isVietnamLeague(match.leagueId) ? "Xem lịch chính thức trên VPF" : "Xem thông tin trận trên ESPN"} <ExternalLink size={17} /></a>}
         </div>

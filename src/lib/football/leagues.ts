@@ -47,3 +47,11 @@ export function shiftDate(date: string, days: number): string {
   value.setUTCDate(value.getUTCDate() + days);
   return value.toISOString().slice(0, 10);
 }
+
+export function shiftMonth(date: string, months: number): string {
+  const [year, month, day] = date.split("-").map(Number);
+  const firstDay = new Date(Date.UTC(year, month - 1 + months, 1));
+  const lastDay = new Date(Date.UTC(firstDay.getUTCFullYear(), firstDay.getUTCMonth() + 1, 0)).getUTCDate();
+  firstDay.setUTCDate(Math.min(day, lastDay));
+  return firstDay.toISOString().slice(0, 10);
+}

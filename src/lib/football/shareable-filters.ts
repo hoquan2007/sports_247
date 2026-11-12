@@ -1,6 +1,7 @@
 import { LEAGUES } from "./leagues.ts";
 import { VIETNAM_LEAGUES } from "./vietnam-leagues.ts";
 import type { MatchStatus } from "./types";
+import { isFollowedTeamId } from "./followed-teams.ts";
 
 export type StatusFilter = "all" | MatchStatus;
 
@@ -9,6 +10,7 @@ export interface MatchFilters {
   league: string;
   status: StatusFilter;
   query: string;
+  team?: string;
 }
 
 const allowedLeagues = new Set([...LEAGUES, ...VIETNAM_LEAGUES].map(({ id }) => id));
@@ -28,11 +30,13 @@ export function parseMatchFilters(params: URLSearchParams, fallbackDate: string)
   const date = params.get("date");
   const league = params.get("league");
   const status = params.get("status") as StatusFilter | null;
+  const team = params.get("team");
   return {
     date: isValidMatchDate(date) ? date : fallbackDate,
     league: league && allowedLeagues.has(league) ? league : "all",
     status: status && allowedStatuses.has(status) ? status : "all",
     query: (params.get("q") ?? "").trim().slice(0, 100),
+    ...(isFollowedTeamId(team) ? { team } : {}),
   };
 }
 
@@ -42,5 +46,6 @@ export function serializeMatchFilters(filters: MatchFilters): URLSearchParams {
   if (filters.league !== "all") params.set("league", filters.league);
   if (filters.status !== "all") params.set("status", filters.status);
   if (filters.query.trim()) params.set("q", filters.query.trim());
+  if (isFollowedTeamId(filters.team)) params.set("team", filters.team);
   return params;
 }

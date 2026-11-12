@@ -46,6 +46,13 @@ const FINISHED = new Set(["FT", "AET", "PEN"]);
 const ADMINISTRATIVE = new Set(["AWD", "WO"]);
 const PLAYING = new Set(["1H", "2H", "HT", "ET", "BT", "P", "LIVE"]);
 const INTERRUPTED = new Set(["INT", "SUSP", "ABD"]);
+const SCHEDULED = new Set(["NS", "TBD"]);
+const POSTPONED = new Set(["PST"]);
+const CANCELLED = new Set(["CANC"]);
+const KNOWN_STATUSES = new Set([
+  ...FINISHED, ...ADMINISTRATIVE, ...PLAYING, ...INTERRUPTED,
+  ...SCHEDULED, ...POSTPONED, ...CANCELLED,
+]);
 
 function teamFromApiSports(team: NonNullable<NonNullable<ApiFixture["teams"]>["home"]>): FootballTeam {
   const logo = team.logo;
@@ -76,9 +83,12 @@ export function mapVietnamFixture(entry: ApiFixture, leagueId: VietnamLeagueId,
       !Number.isSafeInteger(away?.id) || (away?.id ?? 0) <= 0 || home?.id === away?.id ||
       !home?.name?.trim() || !away?.name?.trim()) return null;
 
-  const short = fixture.status?.short ?? "NS";
+  const short = fixture.status?.short;
+  // Unknown or missing provider states must be reported as partial data,
+  // rather than silently presented as a fixture that has not started.
+  if (!short || !KNOWN_STATUSES.has(short)) return null;
   const status: MatchStatus = FINISHED.has(short) ? "finished" : ADMINISTRATIVE.has(short) ? "awarded" : PLAYING.has(short) ? "live"
-    : short === "PST" ? "postponed" : short === "CANC" ? "cancelled"
+    : POSTPONED.has(short) ? "postponed" : CANCELLED.has(short) ? "cancelled"
     : INTERRUPTED.has(short) ? "interrupted" : "scheduled";
   const goal = (value: number | null | undefined) => typeof value === "number" &&
     Number.isInteger(value) && value >= 0 ? value : null;

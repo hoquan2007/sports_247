@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { LEAGUES } from '../src/lib/football/leagues.ts';
+import { LEAGUES, shiftDate, vietnamDate } from '../src/lib/football/leagues.ts';
 import { VIETNAM_LEAGUES } from '../src/lib/football/vietnam-leagues.ts';
 
 const DISPLAY_LEAGUES = [...LEAGUES, ...VIETNAM_LEAGUES];
@@ -34,13 +34,14 @@ let nextId = 0;
 const pending = new Map();
 
 async function waitFor(condition, timeoutMs = 20000) {
+  const caller = new Error().stack?.split('\n')[2]?.trim() ?? 'unknown call site';
   const end = Date.now() + timeoutMs;
   while (Date.now() < end) {
     const found = await condition().catch(() => null);
     if (found) return found;
     await pause(200);
   }
-  throw new Error(`Browser QA timed out after ${timeoutMs} ms`);
+  throw new Error(`Browser QA timed out after ${timeoutMs} ms (${caller})`);
 }
 
 function send(method, params = {}) {
@@ -290,8 +291,12 @@ try {
       const visibility = document.visibilityState;
       const paused = document.querySelector('.mascot-dock').dataset.paused;
       const initial = getComputedStyle(figure).transform;
-      await new Promise(resolve => setTimeout(resolve, 160));
-      return { animation, playState, visibility, paused, moves: getComputedStyle(figure).transform !== initial };
+      let moves = false;
+      for (let i = 0; i < 8 && !moves; i++) {
+        await new Promise(resolve => setTimeout(resolve, 120));
+        moves = getComputedStyle(figure).transform !== initial;
+      }
+      return { animation, playState, visibility, paused, moves };
     })()`);
     assert.equal(activeMotion.animation, 'mascot-dance', `${viewport.name}: interactive dance animation missing`);
     assert.equal(activeMotion.moves, true, `${viewport.name}: mascot does not move with animation enabled (${JSON.stringify(activeMotion)})`);
@@ -518,9 +523,429 @@ try {
       document.querySelector('.search-control input')?.value === 'Bình Dương' &&
       document.querySelector('.status-tab.chosen')?.textContent.trim() === 'Sắp diễn ra'`), 15000);
     checks.push({ viewport: viewport.name, sharedFilters: 'deep link, clipboard, edits, Back/Forward PASS' });
+
+    const jumpDate = '2026-11-20';
+    const picker = await evaluate(`(() => {
+      const input = document.querySelector('.date-jump input[type="date"]');
+      return { min: input?.min, max: input?.max, value: input?.value,
+        width: input?.getBoundingClientRect().width ?? 0 };
+    })()`);
+    assert.equal(picker.min, '1900-01-01', `${viewport.name}: calendar picker minimum changed`);
+    assert.equal(picker.max, '2100-12-31', `${viewport.name}: calendar picker maximum changed`);
+    assert.equal(picker.value, '2026-11-15', `${viewport.name}: calendar picker did not sync with history`);
+    assert.ok(picker.width >= 100, `${viewport.name}: calendar picker is not usable`);
+    await evaluate(`(() => {
+      const input = document.querySelector('.date-jump input[type="date"]');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(jumpDate)});
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`);
+    await waitFor(() => evaluate(`document.querySelector('.date-tab.selected strong')?.textContent === '20/11' &&
+      new URLSearchParams(location.search).get('date') === ${JSON.stringify(jumpDate)}`), 15000);
+    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth + 2'), true,
+      `${viewport.name}: calendar picker causes horizontal overflow`);
+    checks.push({ viewport: viewport.name, dateJump: 'input/date, URL sync, no overflow PASS' });
+    await evaluate(`document.querySelector('.date-month-nav button[aria-label="Tháng sau"]').click()`);
+    await waitFor(() => evaluate(`document.querySelector('#match-date-input')?.value === '2026-12-20' &&
+      new URLSearchParams(location.search).get('date') === '2026-12-20'`), 15000);
+    await evaluate(`document.querySelector('.date-month-nav button[aria-label="Tháng trước"]').click()`);
+    await waitFor(() => evaluate(`document.querySelector('#match-date-input')?.value === '2026-11-20' &&
+      new URLSearchParams(location.search).get('date') === '2026-11-20'`), 15000);
+    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth + 2'), true,
+      `${viewport.name}: month navigation causes horizontal overflow`);
+    checks.push({ viewport: viewport.name, monthNavigation: 'previous/next month, URL sync, no overflow PASS' });
   }
-  await send('Page.navigate', { url: base });
+  for (const [date, edge] of [['1900-01-01', 'first'], ['2100-12-31', 'last']]) {
+    await evaluate(`(() => {
+      history.pushState({}, '', '/?date=${date}');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    })()`);
+    const dayMonth = `${date.slice(8, 10)}/${date.slice(5, 7)}`;
+    await waitFor(() => evaluate(`document.querySelector('.date-tab.selected strong')?.textContent === ${JSON.stringify(dayMonth)}`), 5000);
+    const state = await evaluate(`(() => ({
+      disabledArrows: [...document.querySelectorAll('.date-arrow')].map((button) => button.disabled),
+      disabledMonths: [...document.querySelectorAll('.date-month-nav button')].map((button) => button.disabled),
+      disabledTabs: document.querySelectorAll('.date-tab:disabled').length,
+      selectedDate: new URLSearchParams(location.search).get('date'),
+    }))()`);
+    assert.deepEqual(state.disabledArrows, edge === 'first' ? [true, false] : [false, true],
+      `${date}: calendar allows navigation beyond the supported date range`);
+    assert.deepEqual(state.disabledMonths, edge === 'first' ? [true, false] : [false, true],
+      `${date}: month navigation allows movement beyond the supported date range`);
+    assert.equal(state.disabledTabs, 3, `${date}: out-of-range calendar tabs must be disabled`);
+    assert.equal(state.selectedDate, date, `${date}: boundary date was not preserved`);
+    checks.push({ date, calendarBoundary: 'PASS' });
+  }
+  // A weekday can have zero fixtures. Exercise the match dialog on a nearby
+  // weekend with confirmed fixtures instead of assuming today's feed has one.
+  let modalDate = coverage.matches?.length ? coverage.date : null;
+  if (!modalDate) {
+    const weekday = new Date(`${coverage.date}T12:00:00Z`).getUTCDay();
+    for (const offset of [-weekday, -(weekday + 1), 6 - weekday, 7 - weekday]) {
+      const candidate = shiftDate(coverage.date, offset);
+      const response = await fetch(new URL(`/api/matches?date=${candidate}`, base), { cache: 'no-store' });
+      if (!response.ok) continue;
+      const feed = await response.json();
+      if (feed.matches?.length) { modalDate = candidate; break; }
+    }
+  }
+  assert.ok(modalDate, 'No fixtures found around either weekend; unable to verify match detail dialog');
+  console.log(`Checking match dialog with fixtures from ${modalDate}`);
+  await send('Page.navigate', { url: new URL(`/?date=${modalDate}`, base).toString() });
   await waitFor(() => evaluate(`document.readyState === 'complete' && !!document.querySelector('.spotlight-open, .match-open')`), 30000);
+
+  await waitFor(() => evaluate(`document.querySelectorAll('.match-row').length > 0`), 10000);
+  const sampleTeamName = await evaluate(`document.querySelector('.match-row .match-team > span:last-child')?.textContent?.trim()`);
+  assert.ok(sampleTeamName, 'Search QA needs a populated match row');
+  const setSearch = async (value) => evaluate(`(() => {
+    const input = document.querySelector('.search-control input');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await setSearch(sampleTeamName.toUpperCase());
+  await waitFor(() => evaluate(`document.querySelectorAll('.match-row').length > 0`), 5000);
+  await setSearch('__sports247_no_matching_team__');
+  await waitFor(() => evaluate(`document.querySelectorAll('.match-row').length === 0`), 5000);
+  for (const punctuation of ['  @@@  ', '⚽️', '...']) {
+    await setSearch(punctuation);
+    await waitFor(() => evaluate(`document.querySelectorAll('.match-row').length === 0`), 5000);
+  }
+  await setSearch('   ');
+  await waitFor(() => evaluate(`document.querySelectorAll('.match-row').length > 0`), 5000);
+  await setSearch('');
+  await waitFor(() => evaluate(`document.querySelectorAll('.match-row').length > 0`), 5000);
+  checks.push({ viewport: 'desktop', search: 'team match, punctuation-only no-results, whitespace and reset PASS' });
+
+  // The browser may deliver a response after its AbortSignal has been cancelled.
+  // A late result from an older date must never replace the current fixture list.
+  await evaluate(`(async () => {
+    const source = await fetch('/api/matches?date=${modalDate}').then(response => response.json());
+    const fixture = source.matches[0];
+    const match = { ...fixture, id: 'qa-date-race-fast',
+      home: { ...fixture.home, name: 'SPORTS247 RACE FAST' },
+      startTime: '2026-11-24T12:00:00.000Z',
+    };
+    window.__dateRaceOriginalFetch = window.fetch;
+    window.__dateRaceOldStarted = false;
+    window.__releaseOldDateResponse = null;
+    const responseFor = (date, matches) => new Response(JSON.stringify({
+      ...source, date, matches, partial: false,
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    window.fetch = (input, options) => {
+      const url = String(input);
+      if (url.includes('/api/matches?date=2026-11-23')) {
+        window.__dateRaceOldStarted = true;
+        return new Promise(resolve => {
+          window.__releaseOldDateResponse = () => resolve(responseFor('2026-11-23', []));
+        });
+      }
+      if (url.includes('/api/matches?date=2026-11-24')) {
+        return Promise.resolve(responseFor('2026-11-24', [match]));
+      }
+      return window.__dateRaceOriginalFetch(input, options);
+    };
+  })()`);
+  await evaluate(`(() => {
+    history.pushState({}, '', '/?date=2026-11-23');
+    dispatchEvent(new PopStateEvent('popstate'));
+  })()`);
+  await waitFor(() => evaluate(`window.__dateRaceOldStarted && !!window.__releaseOldDateResponse`), 10000);
+  await evaluate(`(() => {
+    history.pushState({}, '', '/?date=2026-11-24');
+    dispatchEvent(new PopStateEvent('popstate'));
+  })()`);
+  await waitFor(() => evaluate(`new URLSearchParams(location.search).get('date') === '2026-11-24'
+    && document.querySelector('.match-row')?.textContent?.includes('SPORTS247 RACE FAST')`), 10000);
+  await evaluate(`window.__releaseOldDateResponse()`);
+  await pause(250);
+  assert.equal(await evaluate(`document.querySelector('.match-row')?.textContent?.includes('SPORTS247 RACE FAST')`), true,
+    'A delayed response for the previous date replaced the newer fixture');
+  await evaluate(`(() => {
+    window.fetch = window.__dateRaceOriginalFetch;
+    history.pushState({}, '', '/?date=${modalDate}');
+    dispatchEvent(new PopStateEvent('popstate'));
+  })()`);
+  await waitFor(() => evaluate(`document.querySelectorAll('.match-row').length > 0`), 15000);
+  checks.push({ viewport: 'desktop', dateRace: 'out-of-order aborted response preserves latest date and fixture PASS' });
+
+  // Live navigation always returns to today's schedule and clears stale filters.
+  await setSearch('__sports247_no_matching_team__');
+  await waitFor(() => evaluate(`document.querySelectorAll('.match-row').length === 0`), 5000);
+  await evaluate(`document.querySelectorAll('.header-navigation button')[1]?.click()`);
+  await waitFor(() => evaluate(`(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get('date') === ${JSON.stringify(vietnamDate(new Date()))}
+      && params.get('status') === 'live' && !params.has('q')
+      && document.querySelectorAll('.header-navigation button')[1]?.classList.contains('selected');
+  })()`), 10000);
+  checks.push({ viewport: 'desktop', liveNavigation: 'today date, live-only filter and cleared search PASS' });
+  await evaluate(`(() => {
+    history.pushState({}, '', '/?date=${modalDate}');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  })()`);
+  await waitFor(() => evaluate(`document.querySelectorAll('.match-row').length > 0 &&
+    new URLSearchParams(location.search).get('date') === ${JSON.stringify(modalDate)}`), 15000);
+
+  // A favorite changed in another tab must update this tab without writing
+  // the same value back. Session storage events must not affect favorites.
+  assert.equal(await evaluate(`document.querySelector('.match-row .save-button')?.getAttribute('aria-pressed')`), 'false',
+    'unsaved match needs an accessible unpressed state');
+  await evaluate(`(() => {
+    window.__sports247FavoriteWrites = 0;
+    window.__sports247OriginalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function(key, value) {
+      if (key === 'sports247:favorites') window.__sports247FavoriteWrites++;
+      return window.__sports247OriginalSetItem.call(this, key, value);
+    };
+    document.querySelector('.match-row .save-button').click();
+  })()`);
+  await waitFor(() => evaluate(`(() => {
+    const raw = localStorage.getItem('sports247:favorites');
+    return document.querySelector('.match-row .save-button[aria-pressed="true"].saved') && raw && JSON.parse(raw).length === 1;
+  })()`));
+  const originalFavorite = await evaluate(`localStorage.getItem('sports247:favorites')`);
+  await evaluate(`(() => {
+    localStorage.setItem('sports247:favorites', '[]');
+    window.dispatchEvent(new StorageEvent('storage', {
+      key: 'sports247:favorites', newValue: '[]', storageArea: localStorage,
+    }));
+  })()`);
+  await waitFor(() => evaluate(`document.querySelector('.match-row .save-button')?.getAttribute('aria-pressed') === 'false'`));
+  assert.equal(await evaluate(`window.__sports247FavoriteWrites`), 2,
+    'remote favorite update must not trigger redundant localStorage writes');
+  await evaluate(`window.dispatchEvent(new StorageEvent('storage', {
+    key: 'sports247:favorites', newValue: ${JSON.stringify(originalFavorite)}, storageArea: sessionStorage,
+  }))`);
+  assert.equal(await evaluate(`!!document.querySelector('.match-row .save-button.saved')`), false,
+    'unrelated sessionStorage events must not alter local favorites');
+  await evaluate(`(() => {
+    localStorage.setItem('sports247:favorites', ${JSON.stringify(originalFavorite)});
+    window.dispatchEvent(new StorageEvent('storage', {
+      key: 'sports247:favorites', newValue: ${JSON.stringify(originalFavorite)}, storageArea: localStorage,
+    }));
+  })()`);
+  await waitFor(() => evaluate(`document.querySelector('.match-row .save-button')?.getAttribute('aria-pressed') === 'true'`));
+  assert.equal(await evaluate(`window.__sports247FavoriteWrites`), 3,
+    'restoring a remote favorite must not trigger redundant localStorage writes');
+  // A delayed event can describe an older write even though shared storage
+  // already contains a newer value from another tab.
+  await evaluate(`window.dispatchEvent(new StorageEvent('storage', {
+    key: 'sports247:favorites', newValue: '[]', storageArea: localStorage,
+  }))`);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(await evaluate(`localStorage.getItem('sports247:favorites')`), originalFavorite,
+    'a delayed storage event must not roll back newer favorites');
+  assert.equal(await evaluate(`document.querySelector('.match-row .save-button')?.getAttribute('aria-pressed')`), 'true',
+    'a delayed storage event must not roll back the saved UI state');
+  assert.equal(await evaluate(`window.__sports247FavoriteWrites`), 3,
+    'a delayed favorite event must never rewrite shared storage');
+  await evaluate(`Storage.prototype.setItem = window.__sports247OriginalSetItem`);
+  await evaluate(`document.querySelector('.match-row .save-button').focus()`);
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
+  await waitFor(() => evaluate(`(() => {
+    const raw = localStorage.getItem('sports247:favorites');
+    return document.querySelector('.match-row .save-button')?.getAttribute('aria-pressed') === 'false'
+      && raw && JSON.parse(raw).length === 0;
+  })()`));
+  checks.push({ viewport: 'desktop', favorites: 'click, keyboard Space, aria-pressed, cross-tab sync and no feedback write PASS' });
+
+  // At the 500-ID storage limit, the star must stay unpressed. Otherwise
+  // the UI claims the fixture is saved while persistence silently drops it.
+  await evaluate(`(() => {
+    const full = JSON.stringify(Array.from({ length: 500 }, (_, i) => 'qa-saved-' + i));
+    localStorage.setItem('sports247:favorites', full);
+    window.dispatchEvent(new StorageEvent('storage', {
+      key: 'sports247:favorites', newValue: full, storageArea: localStorage,
+    }));
+    document.querySelector('.favorites-link')?.click();
+  })()`);
+  await waitFor(() => evaluate(`document.querySelector('.favorites-tools button')?.textContent?.includes('(500)')`));
+  await evaluate(`document.querySelector('.favorites-link')?.click()`);
+  await waitFor(() => evaluate(`!!document.querySelector('.match-row .save-button')`));
+  await evaluate(`document.querySelector('.match-row .save-button')?.click()`);
+  await waitFor(() => evaluate(`document.querySelector('.share-feedback[role="status"]')?.textContent?.includes('500 trận yêu thích')`));
+  assert.equal(await evaluate(`document.querySelector('.match-row .save-button')?.getAttribute('aria-pressed')`), 'false',
+    'Favorite appeared saved after the 500-match persistence limit');
+  assert.equal(await evaluate(`JSON.parse(localStorage.getItem('sports247:favorites')).length`), 500,
+    'Adding after the limit should not change the saved set');
+  await evaluate(`(() => {
+    localStorage.setItem('sports247:favorites', '[]');
+    window.dispatchEvent(new StorageEvent('storage', {
+      key: 'sports247:favorites', newValue: '[]', storageArea: localStorage,
+    }));
+  })()`);
+  await waitFor(() => evaluate(`document.querySelector('.favorites-link')?.getAttribute('aria-pressed') === 'false' &&
+    document.querySelector('.match-row .save-button')?.getAttribute('aria-pressed') === 'false'`));
+  checks.push({ viewport: 'desktop', favoritesLimit: '500-item cap matches UI and localStorage PASS' });
+
+  // Exercise the actual backup controls with a valid JSON file, an invalid
+  // file and a downloadable Blob, while keeping the browser's data local.
+  await evaluate(`document.querySelector('.match-row .save-button')?.click()`);
+  await waitFor(() => evaluate(`JSON.parse(localStorage.getItem('sports247:favorites') ?? '[]').length === 1`));
+  await evaluate(`document.querySelector('.favorites-link')?.click()`);
+  await waitFor(() => evaluate(`!!document.querySelector('.favorites-tools')`));
+  await evaluate(`(() => {
+    window.__originalCreateObjectURL = URL.createObjectURL;
+    URL.createObjectURL = function(blob) {
+      window.__favoriteExportBlob = blob;
+      return window.__originalCreateObjectURL.call(URL, blob);
+    };
+    document.querySelector('.favorites-tools button')?.click();
+    URL.createObjectURL = window.__originalCreateObjectURL;
+  })()`);
+  const exported = await evaluate(`window.__favoriteExportBlob?.text()`);
+  assert.ok(exported, 'Favorite export did not produce a JSON Blob');
+  const exportedBackup = JSON.parse(exported);
+  assert.equal(exportedBackup.version, 1, 'Favorite export lacks its backup version');
+  assert.equal(exportedBackup.favorites.length, 1, 'Favorite export omitted the saved match');
+  const importedId = 'ger.1:browser-qa-backup';
+  const validBackupPath = path.join(profile, 'sports247-favorites-valid.json');
+  const invalidBackupPath = path.join(profile, 'sports247-favorites-invalid.json');
+  await writeFile(validBackupPath, JSON.stringify({ version: 1, favorites: [importedId, importedId] }));
+  await writeFile(invalidBackupPath, '{invalid JSON');
+  const { root: documentNode } = await send('DOM.getDocument');
+  const { nodeId: importInputId } = await send('DOM.querySelector', {
+    nodeId: documentNode.nodeId, selector: '.favorites-tools input[type="file"]',
+  });
+  assert.ok(importInputId, 'Favorite import file input missing');
+  await send('DOM.setFileInputFiles', { nodeId: importInputId, files: [validBackupPath] });
+  await waitFor(() => evaluate(`JSON.parse(localStorage.getItem('sports247:favorites') ?? '[]').includes(${JSON.stringify(importedId)})`));
+  assert.equal(await evaluate(`JSON.parse(localStorage.getItem('sports247:favorites')).length`), 2,
+    'Favorite import did not deduplicate or merge existing saved matches');
+  await send('DOM.setFileInputFiles', { nodeId: importInputId, files: [invalidBackupPath] });
+  await waitFor(() => evaluate(`document.querySelector('.favorites-tools [role="status"]')?.textContent?.includes('không hợp lệ')`));
+  assert.equal(await evaluate(`JSON.parse(localStorage.getItem('sports247:favorites')).length`), 2,
+    'Invalid favorite import modified saved data');
+  // Reminders must be opt-in, persist the chosen lead and allow explicit opt-out.
+  assert.equal(await evaluate(`document.querySelector('.reminder-tools button')?.getAttribute('aria-pressed')`), 'false',
+    'Reminder settings should default to disabled');
+  await evaluate(`document.querySelector('.reminder-tools button')?.click()`);
+  await waitFor(() => evaluate(`document.querySelector('.reminder-tools button')?.getAttribute('aria-pressed') === 'true'
+    && JSON.parse(localStorage.getItem('sports247:reminder-settings') ?? '{}').enabled === true`));
+  await evaluate(`(() => {
+    const select = document.querySelector('.reminder-tools select');
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select, '60');
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await waitFor(() => evaluate(`JSON.parse(localStorage.getItem('sports247:reminder-settings') ?? '{}').minutesBefore === 60`));
+  await evaluate(`window.dispatchEvent(new StorageEvent('storage', {
+    key: 'sports247:reminder-settings',
+    newValue: JSON.stringify({ enabled: false, minutesBefore: 30 }), storageArea: localStorage,
+  }))`);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(await evaluate(`JSON.parse(localStorage.getItem('sports247:reminder-settings')).enabled`), true,
+    'a delayed reminder-settings event must not disable newer preferences');
+  assert.equal(await evaluate(`JSON.parse(localStorage.getItem('sports247:reminder-settings')).minutesBefore`), 60,
+    'a delayed reminder-settings event must not revert the lead time');
+  // Older reminder requests must not overwrite a newer postponement response.
+  // Keep the first response pending and deliberately resolve it after the second.
+  const reminderDate = vietnamDate(new Date());
+  await evaluate(`(async () => {
+    const saved = JSON.parse(localStorage.getItem('sports247:favorites'))[0];
+    const historical = await fetch('/api/matches?date=${modalDate}').then((response) => response.json());
+    const fixture = historical.matches.find((match) => match.id === saved);
+    if (!fixture) throw new Error('Saved fixture unavailable for reminder QA');
+    window.__reminderQaFixture = { ...fixture,
+      startTime: new Date(Date.now() + 10 * 60_000).toISOString(),
+      status: 'scheduled', statusDetail: 'Chưa bắt đầu',
+    };
+    window.__reminderOriginalFetch = window.fetch;
+    window.__reminderRaceCount = 0;
+    window.__releaseStaleReminder = null;
+    window.fetch = (input, init) => String(input).startsWith('/api/matches?date=${reminderDate}')
+      ? (() => {
+          const sequence = ++window.__reminderRaceCount;
+          const match = sequence === 1 ? window.__reminderQaFixture :
+            { ...window.__reminderQaFixture, status: 'postponed', statusDetail: 'Tạm hoãn' };
+          const reply = () => new Response(JSON.stringify({ ...historical, date: '${reminderDate}',
+            matches: [match] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          if (sequence === 1) return new Promise((resolve) => {
+            window.__releaseStaleReminder = () => resolve(reply());
+          });
+          return Promise.resolve(reply());
+        })()
+      : window.__reminderOriginalFetch(input, init);
+    document.dispatchEvent(new Event('visibilitychange'));
+  })()`);
+  await waitFor(() => evaluate(`window.__reminderRaceCount === 1 && !!window.__releaseStaleReminder`));
+  await evaluate(`document.dispatchEvent(new Event('visibilitychange'))`);
+  await waitFor(() => evaluate(`window.__reminderRaceCount >= 2`));
+  await pause(300);
+  await evaluate(`window.__releaseStaleReminder()`);
+  await pause(300);
+  assert.equal(await evaluate(`!!document.querySelector('.reminder-alert')`), false,
+    'A stale scheduled response reactivated a reminder after the fixture was postponed');
+  checks.push({ viewport: 'desktop', reminderRace: 'newer postponement wins over delayed scheduled response PASS' });
+  // A Web Lock can be granted after opt-out. The queued callback must not
+  // consume a reminder that was never displayed to the user.
+  await evaluate(`(() => {
+    window.__reminderLocksDescriptor = Object.getOwnPropertyDescriptor(navigator, 'locks');
+    window.__deferredReminderLock = null;
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: {
+      request(_name, callback) {
+        return new Promise((resolve) => {
+          window.__deferredReminderLock = () => resolve(callback());
+        });
+      },
+    } });
+    window.fetch = (input, init) => String(input).startsWith('/api/matches?date=${reminderDate}')
+      ? Promise.resolve(new Response(JSON.stringify({
+          date: '${reminderDate}', matches: [window.__reminderQaFixture], partial: false,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      : window.__reminderOriginalFetch(input, init);
+    document.dispatchEvent(new Event('visibilitychange'));
+  })()`);
+  await waitFor(() => evaluate(`typeof window.__deferredReminderLock === 'function'`));
+  await evaluate(`document.querySelector('.reminder-tools button')?.click()`);
+  await waitFor(() => evaluate(`document.querySelector('.reminder-tools button')?.getAttribute('aria-pressed') === 'false'`));
+  await evaluate(`(() => {
+    window.__deferredReminderLock();
+    if (window.__reminderLocksDescriptor) {
+      Object.defineProperty(navigator, 'locks', window.__reminderLocksDescriptor);
+    } else {
+      delete navigator.locks;
+    }
+  })()`);
+  await pause(250);
+  assert.equal(await evaluate(`JSON.parse(localStorage.getItem('sports247:reminders-sent') ?? '[]').length`), 0,
+    'A cancelled Web Lock callback consumed a reminder after opt-out');
+  assert.equal(await evaluate(`!!document.querySelector('.reminder-alert')`), false,
+    'A cancelled Web Lock callback displayed a reminder after opt-out');
+  checks.push({ viewport: 'desktop', reminderLock: 'queued lock is cancelled after opt-out PASS' });
+  // The regular notification path still announces a due saved fixture once.
+  await evaluate(`(() => {
+    window.fetch = (input, init) => String(input).startsWith('/api/matches?date=${reminderDate}')
+      ? Promise.resolve(new Response(JSON.stringify({
+          date: '${reminderDate}', matches: [window.__reminderQaFixture], partial: false,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      : window.__reminderOriginalFetch(input, init);
+    document.querySelector('.reminder-tools button')?.click();
+    document.dispatchEvent(new Event('visibilitychange'));
+  })()`);
+  await waitFor(() => evaluate(`document.querySelector('.reminder-alert')?.textContent?.includes('Sắp bóng lăn:')`));
+  assert.equal(await evaluate(`JSON.parse(localStorage.getItem('sports247:reminders-sent') ?? '[]').length`), 1,
+    'A due saved fixture must create one persistent announcement record');
+  await evaluate(`(() => {
+    document.querySelector('.reminder-alert button')?.click();
+    document.dispatchEvent(new Event('visibilitychange'));
+  })()`);
+  await pause(500);
+  assert.equal(await evaluate(`JSON.parse(localStorage.getItem('sports247:reminders-sent') ?? '[]').length`), 1,
+    'Refreshing a reminder feed must not announce the same fixture twice');
+  await evaluate(`window.fetch = window.__reminderOriginalFetch`);
+  await evaluate(`document.querySelector('.reminder-tools button')?.click()`);
+  await waitFor(() => evaluate(`document.querySelector('.reminder-tools button')?.getAttribute('aria-pressed') === 'false'
+    && JSON.parse(localStorage.getItem('sports247:reminder-settings') ?? '{}').enabled === false`));
+  checks.push({ viewport: 'desktop', reminders: 'opt-in, lead selection, due toast, dedup and opt-out PASS' });
+  await evaluate(`(() => {
+    localStorage.setItem('sports247:favorites', '[]');
+    window.dispatchEvent(new StorageEvent('storage', {
+      key: 'sports247:favorites', newValue: '[]', storageArea: localStorage,
+    }));
+    document.querySelector('.favorites-link')?.click();
+  })()`);
+  checks.push({ viewport: 'desktop', favoritesBackup: 'export JSON, import dedup, reject malformed backup PASS' });
 
   if (dialogChunk) {
     const loadedBeforeOpen = await evaluate(`performance.getEntriesByType('resource').some(
@@ -567,6 +992,70 @@ try {
   assert.equal(await evaluate(`document.activeElement === document.querySelector('.spotlight-open, .match-open')`), true,
     'Match detail Escape did not restore focus to opener');
   checks.push({ viewport: 'desktop', keyboardDialog: 'focus trap, ArrowRight tab, Escape focus restoration PASS' });
+  // A restored URL must close a detail view from the old navigation state.
+  await evaluate(`document.querySelector('.spotlight-open, .match-open')?.click()`);
+  await waitFor(() => evaluate(`!!document.querySelector('[role="dialog"]')`), 10000);
+  await evaluate(`(() => {
+    const url = new URL(location.href);
+    url.searchParams.set('date', ${JSON.stringify(modalDate)});
+    url.searchParams.set('status', 'scheduled');
+    history.pushState({}, '', url);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  })()`);
+  await waitFor(() => evaluate(`!document.querySelector('[role="dialog"]')`), 10000);
+  assert.equal(await evaluate(`document.querySelector('.status-tab.chosen')?.textContent?.includes('Sắp diễn ra')`), true,
+    'History restoration did not apply the requested status filter');
+  checks.push({ viewport: 'desktop', navigation: 'popstate closes old match detail and restores filters PASS' });
+  // A real ESPN fixture must be bookmarkable, render through SSR, and survive
+  // reload and Back navigation. Choose it from the confirmed feed at runtime.
+  const matchFeedResponse = await fetch(new URL(`/api/matches?date=${modalDate}`, base), { cache: 'no-store' });
+  assert.equal(matchFeedResponse.status, 200, 'Could not load fixtures for match permalink QA');
+  const matchFeed = await matchFeedResponse.json();
+  const espnFixture = matchFeed.matches.find((match) => match.source === 'ESPN' &&
+    /^\d{6,12}$/.test(match.eventId) && LEAGUES.some((league) => league.id === match.leagueId));
+  assert.ok(espnFixture, 'No verified ESPN fixture available for match permalink QA');
+  const matchPath = `/match/${espnFixture.leagueId}/${espnFixture.eventId}`;
+  const matchPageResponse = await fetch(new URL(matchPath, base));
+  assert.equal(matchPageResponse.status, 200, `Confirmed match permalink failed: ${matchPath}`);
+  const matchHtml = await matchPageResponse.text();
+  assert.match(matchHtml, /<title>[^<]*SPORTS247<\/title>/, 'Match page has no descriptive SSR title');
+  assert.ok(matchHtml.includes(`rel="canonical"`) && matchHtml.includes(matchPath),
+    'Match page has no canonical event URL');
+  const invalidMatchResponse = await fetch(new URL('/match/invalid/not-an-event', base));
+  assert.equal(invalidMatchResponse.status, 404, 'Invalid event URL must return HTTP 404');
+  await send('Page.navigate', { url: new URL(matchPath, base).toString() });
+  await waitFor(() => evaluate(`location.pathname === ${JSON.stringify(matchPath)} &&
+    !!document.querySelector('.match-dialog-page .dialog-scoreline')`), 30000);
+  const matchPageState = await evaluate(`(() => ({
+    teams: [...document.querySelectorAll('.match-dialog-page .dialog-team strong')].map(el => el.textContent.trim()),
+    tabs: document.querySelectorAll('.match-dialog-page [role="tab"]').length,
+    modal: document.querySelector('.match-dialog-page')?.getAttribute('aria-modal'),
+    overflow: document.body.style.overflow,
+    copy: !!document.querySelector('.match-dialog-page .detail-share-controls button'),
+    overflowWidth: document.documentElement.scrollWidth > window.innerWidth,
+  }))()`);
+  assert.deepEqual(matchPageState.teams, [espnFixture.home.name, espnFixture.away.name],
+    'Match permalink displays a fixture different from the confirmed feed');
+  assert.equal(matchPageState.tabs, 5, 'Match permalink lost its accessible detail tabs');
+  assert.equal(matchPageState.modal, null, 'Standalone match page must permit normal navigation');
+  assert.notEqual(matchPageState.overflow, 'hidden', 'Standalone match page prevents scrolling');
+  assert.equal(matchPageState.copy, true, 'Standalone match page is missing the share action');
+  assert.equal(matchPageState.overflowWidth, false, 'Standalone match page overflows the compact viewport');
+  await send('Page.reload', { ignoreCache: true });
+  await waitFor(() => evaluate(`location.pathname === ${JSON.stringify(matchPath)} &&
+    document.querySelectorAll('.match-dialog-page .dialog-team strong').length === 2`), 30000);
+  await evaluate(`history.back()`);
+  await waitFor(() => evaluate(`location.pathname === '/' && !!document.querySelector('.app-shell')`), 30000);
+  // After a full-page history navigation, SSR can paint before React event
+  // handlers hydrate. Verify a real interaction before testing offline events.
+  await waitFor(async () => {
+    if (await evaluate(`document.querySelector('.stat-box--finished')?.getAttribute('aria-pressed') === 'true'`)) return true;
+    await evaluate(`document.querySelector('.stat-box--finished')?.click()`);
+    return false;
+  }, 15000);
+  await evaluate(`document.querySelector('.stat-box--all')?.click()`);
+  await waitFor(() => evaluate(`document.querySelector('.stat-box--all')?.getAttribute('aria-pressed') === 'true'`), 10000);
+  checks.push({ viewport: 'compact', matchPermalink: 'real ESPN SSR, canonical, 404, teams, reload, Back, responsive PASS' });
   // Recover from an interrupted in-flight refresh without waiting for the 90s timer.
   await evaluate(`(() => {
     document.querySelector('.header-refresh')?.click();
@@ -586,6 +1075,110 @@ try {
   await evaluate(`document.querySelector('.update-retry')?.click()`);
   await waitFor(() => evaluate(`!!document.querySelector('.update-indicator:not(.update-indicator--error)')`), 45000);
   checks.push({ viewport: 'desktop', refreshRecovery: 'offline/online and manual retry PASS' });
+  // Pinned league shortcuts must persist, drive filters, and ignore stale storage events.
+  await evaluate(`document.querySelector('.competition-pin[data-league-id="eng.1"]')?.click()`);
+  await evaluate(`document.querySelector('.competition-pin[data-league-id="ger.1"]')?.click()`);
+  await waitFor(() => evaluate(`localStorage.getItem('sports247:pinned-leagues:v1') === '["eng.1","ger.1"]'
+    && document.querySelectorAll('.pinned-league-shortcut').length === 2`), 5000);
+  await evaluate(`document.querySelector('.pinned-league-shortcut[data-league-id="ger.1"]')?.click()`);
+  await waitFor(() => evaluate(`new URLSearchParams(location.search).get('league') === 'ger.1'
+    && document.querySelector('.pinned-league-shortcut[data-league-id="ger.1"]')?.getAttribute('aria-pressed') === 'true'`), 5000);
+  await send('Page.reload', { ignoreCache: false });
+  await waitFor(() => evaluate(`document.readyState === 'complete'
+    && document.querySelectorAll('.pinned-league-shortcut').length === 2
+    && new URLSearchParams(location.search).get('league') === 'ger.1'`), 15000);
+  await evaluate(`window.dispatchEvent(new StorageEvent('storage', {
+    key: 'sports247:pinned-leagues:v1', newValue: '["eng.1"]', storageArea: localStorage,
+  }))`);
+  await pause(200);
+  assert.equal(await evaluate(`document.querySelectorAll('.pinned-league-shortcut').length`), 2,
+    'A delayed pin storage event discarded a newer shortcut');
+  await evaluate(`document.querySelector('.competition-pin[data-league-id="eng.1"]')?.click()`);
+  await evaluate(`document.querySelector('.competition-pin[data-league-id="ger.1"]')?.click()`);
+  await waitFor(() => evaluate(`localStorage.getItem('sports247:pinned-leagues:v1') === '[]'
+    && document.querySelectorAll('.pinned-league-shortcut').length === 0`), 5000);
+  assert.equal(await evaluate(`document.documentElement.scrollWidth > window.innerWidth`), false,
+    'Pinned league controls introduced horizontal overflow');
+  checks.push({ viewport: 'compact', pinnedLeagues: 'persist, filter, reload, stale storage event, remove and no overflow PASS' });
+  // Saved searches must follow the query, survive reload and ignore delayed storage notifications.
+  await evaluate(`(() => {
+    const input = document.querySelector('.search-control input');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'Bình Dương');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await waitFor(() => evaluate(`new URLSearchParams(location.search).get('q') === 'Bình Dương' &&
+    !!document.querySelector('.saved-search-add')`), 5000);
+  await evaluate(`document.querySelector('.saved-search-add')?.click()`);
+  await waitFor(() => evaluate(`localStorage.getItem('sports247:saved-searches:v1') === '["Bình Dương"]' &&
+    document.querySelectorAll('.saved-search-select').length === 1`), 5000);
+  await evaluate(`(() => {
+    const input = document.querySelector('.search-control input');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'Arsenal');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await waitFor(() => evaluate(`new URLSearchParams(location.search).get('q') === 'Arsenal'`), 5000);
+  await evaluate(`document.querySelector('.saved-search-select')?.click()`);
+  await waitFor(() => evaluate(`new URLSearchParams(location.search).get('q') === 'Bình Dương'`), 5000);
+  await send('Page.reload', { ignoreCache: false });
+  await waitFor(() => evaluate(`document.readyState === 'complete' &&
+    document.querySelector('.saved-search-select')?.textContent.includes('Bình Dương')`), 15000);
+  await evaluate(`window.dispatchEvent(new StorageEvent('storage', {
+    key: 'sports247:saved-searches:v1', newValue: '["Arsenal"]', storageArea: localStorage,
+  }))`);
+  await pause(200);
+  assert.equal(await evaluate(`document.querySelector('.saved-search-select')?.textContent.includes('Bình Dương')`), true,
+    'An outdated saved-search storage event discarded a newer preset');
+  await evaluate(`document.querySelector('.saved-search-remove')?.click()`);
+  await waitFor(() => evaluate(`localStorage.getItem('sports247:saved-searches:v1') === '[]' &&
+    document.querySelectorAll('.saved-search-select').length === 0`), 5000);
+  assert.equal(await evaluate(`document.documentElement.scrollWidth > window.innerWidth`), false,
+    'Saved searches introduced horizontal overflow');
+  checks.push({ viewport: 'compact', savedSearches: 'persist, restore filter, reload, stale event, remove, no overflow PASS' });
+  // Team shortcuts are provider/league-specific and must survive date changes and reload.
+  await send('Page.navigate', { url: new URL(`/?date=${modalDate}`, base).toString() });
+  await waitFor(() => evaluate(`document.querySelectorAll('#team-follow-select option').length > 1 &&
+    document.querySelectorAll('.match-row').length > 0`), 30000);
+  await waitFor(async () => {
+    if (await evaluate(`document.querySelector('.stat-box--finished')?.getAttribute('aria-pressed') === 'true'`)) return true;
+    await evaluate(`document.querySelector('.stat-box--finished')?.click()`);
+    return false;
+  }, 15000);
+  await evaluate(`document.querySelector('.stat-box--all')?.click()`);
+  await waitFor(() => evaluate(`document.querySelector('.stat-box--all')?.getAttribute('aria-pressed') === 'true'`), 5000);
+  const followedId = await evaluate(`document.querySelector('#team-follow-select option:nth-child(2)')?.value`);
+  assert.ok(followedId, 'A fixture team is required for followed-team QA');
+  await evaluate(`(() => {
+    const select = document.querySelector('#team-follow-select');
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select, ${JSON.stringify(followedId)});
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await waitFor(() => evaluate(`document.querySelector('.team-follow-add')?.disabled === false`), 5000);
+  await evaluate(`document.querySelector('.team-follow-add')?.click()`);
+  await waitFor(() => evaluate(`new URLSearchParams(location.search).get('team') === ${JSON.stringify(followedId)} &&
+    document.querySelector('.followed-team-select')?.getAttribute('aria-pressed') === 'true' &&
+    JSON.parse(localStorage.getItem('sports247:followed-teams:v1') ?? '[]').length === 1`), 5000);
+  await evaluate(`document.querySelector('.date-arrow[aria-label="Ngày tiếp theo"]')?.click()`);
+  await waitFor(() => evaluate(`new URLSearchParams(location.search).get('team') === ${JSON.stringify(followedId)} &&
+    new URLSearchParams(location.search).get('date') !== ${JSON.stringify(modalDate)}`), 5000);
+  await send('Page.reload', { ignoreCache: false });
+  await waitFor(() => evaluate(`document.readyState === 'complete' &&
+    new URLSearchParams(location.search).get('team') === ${JSON.stringify(followedId)} &&
+    document.querySelector('.followed-team-select')?.getAttribute('aria-pressed') === 'true'`), 15000);
+  await evaluate(`window.dispatchEvent(new StorageEvent('storage', {
+    key: 'sports247:followed-teams:v1', newValue: '[]', storageArea: localStorage,
+  }))`);
+  await pause(200);
+  assert.equal(await evaluate(`document.querySelectorAll('.followed-team-select').length`), 1,
+    'An outdated followed-teams storage event discarded a newer shortcut');
+  await evaluate(`document.querySelector('.followed-team-select')?.click()`);
+  await waitFor(() => evaluate(`new URLSearchParams(location.search).has('team') === false &&
+    document.querySelector('.followed-team-select')?.getAttribute('aria-pressed') === 'false'`), 5000);
+  await evaluate(`document.querySelector('.followed-team-remove')?.click()`);
+  await waitFor(() => evaluate(`localStorage.getItem('sports247:followed-teams:v1') === '[]' &&
+    document.querySelectorAll('.followed-team-select').length === 0`), 5000);
+  assert.equal(await evaluate(`document.documentElement.scrollWidth > window.innerWidth`), false,
+    'Followed team controls introduced horizontal overflow');
+  checks.push({ viewport: 'compact', followedTeams: 'follow, URL, date, reload, stale event, remove and no overflow PASS' });
   // Simulate an unavailable CDN on a clean page load. Every badge must become readable text.
   await send('Network.setCacheDisabled', { cacheDisabled: true });
   await send('Network.setBlockedURLs', { urls: ['*a.espncdn.com*'] });
@@ -639,6 +1232,67 @@ try {
   await capture('mobile-vpf-blocked.png');
   screenshots.push('mobile-vpf-blocked.png');
   checks.push(vpfBlocked);
+  // Some browser privacy modes throw when accessing the localStorage property
+  // itself. Saving a favorite should still work for the current page session.
+  await send('Network.setBlockedURLs', { urls: [] });
+  await send('Page.addScriptToEvaluateOnNewDocument', { source: `
+    window.__sports247PrivacyErrors = [];
+    window.addEventListener('error', (event) => {
+      window.__sports247PrivacyErrors.push(event.message || String(event.error));
+    });
+    window.addEventListener('unhandledrejection', (event) => {
+      window.__sports247PrivacyErrors.push(String(event.reason));
+    });
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() { throw new DOMException('Storage disabled', 'SecurityError'); },
+    });
+  ` });
+  await send('Page.navigate', { url: new URL(`/?date=${modalDate}`, base).toString() });
+  await waitFor(() => evaluate(`!document.querySelector('.matchday-intro') && !!document.querySelector('.match-row .save-button')`), 30000);
+  assert.equal(await evaluate(`(() => {
+    try { void localStorage; return false; }
+    catch (error) { return error?.name === 'SecurityError'; }
+  })()`), true, 'Privacy-mode storage getter did not throw');
+  assert.deepEqual(await evaluate(`window.__sports247PrivacyErrors`), [],
+    'Storage denied mode must not throw while hydrating favorites or reminders');
+  await evaluate(`document.querySelector('.match-row .save-button')?.click()`);
+  await waitFor(() => evaluate(`document.querySelector('.match-row .save-button')?.getAttribute('aria-pressed') === 'true'`), 5000);
+  await evaluate(`document.querySelector('.favorites-link')?.click()`);
+  await waitFor(() => evaluate(`!!document.querySelector('.reminder-tools button')`), 5000);
+  await evaluate(`document.querySelector('.reminder-tools button')?.click()`);
+  await waitFor(() => evaluate(`document.querySelector('.reminder-tools button')?.getAttribute('aria-pressed') === 'true'`), 5000);
+  await evaluate(`document.querySelector('.competition-pin[data-league-id="eng.1"]')?.click()`);
+  await waitFor(() => evaluate(`!!document.querySelector('.pinned-league-shortcut[data-league-id="eng.1"]')`), 5000);
+  await evaluate(`(() => {
+    const input = document.querySelector('.search-control input');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'Arsenal');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await waitFor(() => evaluate(`!!document.querySelector('.saved-search-add')`), 5000);
+  await evaluate(`document.querySelector('.saved-search-add')?.click()`);
+  await waitFor(() => evaluate(`!!document.querySelector('.saved-search-select')`), 5000);
+  const privacyTeam = await evaluate(`document.querySelector('#team-follow-select option:nth-child(2)')?.value`);
+  assert.ok(privacyTeam, 'Privacy-mode fixture must offer a team preset');
+  await evaluate(`(() => {
+    const select = document.querySelector('#team-follow-select');
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select, ${JSON.stringify(privacyTeam)});
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await waitFor(() => evaluate(`document.querySelector('.team-follow-add')?.disabled === false`), 5000);
+  await evaluate(`document.querySelector('.team-follow-add')?.click()`);
+  await waitFor(() => evaluate(`document.querySelector('.followed-team-select')?.getAttribute('aria-pressed') === 'true'`), 5000);
+  await evaluate(`(() => {
+    window.dispatchEvent(new StorageEvent('storage', { key: 'sports247:favorites' }));
+    window.dispatchEvent(new StorageEvent('storage', { key: 'sports247:reminder-settings' }));
+    window.dispatchEvent(new StorageEvent('storage', { key: 'sports247:pinned-leagues:v1' }));
+    window.dispatchEvent(new StorageEvent('storage', { key: 'sports247:saved-searches:v1' }));
+    window.dispatchEvent(new StorageEvent('storage', { key: 'sports247:followed-teams:v1' }));
+  })()`);
+  await pause(200);
+  assert.deepEqual(await evaluate(`window.__sports247PrivacyErrors`), [],
+    'Storage denied mode must not cause uncaught browser errors');
+  checks.push({ viewport: 'compact', blockedStorage: 'favorites, reminders, league pins, saved searches and team shortcuts survive denied localStorage and storage events PASS' });
   console.log(JSON.stringify({ status: 'PASS', checks, interactive: 'modal/watch tab/Escape', screenshots }, null, 2));
 } catch (error) {
   console.error('Browser QA FAILED:', error.message);

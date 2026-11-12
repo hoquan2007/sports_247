@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMatchFeed } from "@/lib/football/espn";
 import { vietnamDate } from "@/lib/football/leagues";
+import { isValidMatchDate } from "@/lib/football/shareable-filters";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   const date = request.nextUrl.searchParams.get("date") ?? vietnamDate(new Date());
-  const parsed = new Date(`${date}T00:00:00Z`);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(parsed.getTime()) ||
-      parsed.toISOString().slice(0, 10) !== date) {
+  if (!isValidMatchDate(date)) {
     return NextResponse.json({ error: "Ngày phải có định dạng YYYY-MM-DD." }, { status: 400 });
   }
   const started = performance.now();
